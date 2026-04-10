@@ -41,6 +41,12 @@ Mounted named volumes:
   - `GET /healthz` -> plain-text container healthcheck response
   - `GET /api/health` -> JSON service health summary
   - `GET /api/status` -> JSON dashboard summary with database readiness, provider mode, counts, and latest job info
+  - `GET /api/world-models` -> JSON summaries for saved world models
+  - `POST /api/world-models` -> create a saved world model
+  - `GET /api/world-models/:id` -> fetch a saved world model
+  - `PUT /api/world-models/:id` -> update a saved world model
+- First-run API startup seeds the `Northbridge Financial Advisory` demo model.
+- The matching sample payload lives at `sample-data/world-models/northbridge-financial.json`.
 
 ## Validation
 

@@ -1,0 +1,48 @@
+{
+  "organization": {
+    "name": "Northbridge Financial Advisory",
+    "description": "Mid-sized US financial services firm serving regional businesses and high-net-worth clients.",
+    "industry": "Financial services",
+    "headquarters": "Chicago, IL, USA",
+    "size": "Mid-sized"
+  },
+  "branding": {
+    "tone": "Professional and reassuring",
+    "voice": "Confident, precise, and client-focused",
+    "primaryColor": "#123B5D",
+    "secondaryColor": "#B58A3B",
+    "keywords": ["trust", "compliance", "growth"]
+  },
+  "departments": [
+    { "name": "Finance", "description": "Financial planning, reporting, and budgeting." },
+    { "name": "Human Resources", "description": "Recruiting, onboarding, and people operations." },
+    { "name": "Information Technology", "description": "Internal systems, endpoint support, and security coordination." },
+    { "name": "Operations", "description": "Client onboarding, process execution, and vendor management." },
+    { "name": "Compliance", "description": "Regulatory reporting, policy oversight, and audit readiness." }
+  ],
+  "employees": [
+    { "fullName": "Lauren Chen", "title": "Managing Director", "department": "Finance", "email": "lauren.chen@northbridge.example" },
+    { "fullName": "Marcus Bell", "title": "Controller", "department": "Finance", "email": "marcus.bell@northbridge.example" },
+    { "fullName": "Priya Nair", "title": "HR Manager", "department": "Human Resources", "email": "priya.nair@northbridge.example" },
+    { "fullName": "Dylan Brooks", "title": "IT Lead", "department": "Information Technology", "email": "dylan.brooks@northbridge.example" },
+    { "fullName": "Avery Patel", "title": "Operations Manager", "department": "Operations", "email": "avery.patel@northbridge.example" },
+    { "fullName": "Sofia Ramirez", "title": "Compliance Officer", "department": "Compliance", "email": "sofia.ramirez@northbridge.example" },
+    { "fullName": "Ethan Cole", "title": "Financial Analyst", "department": "Finance", "email": "ethan.cole@northbridge.example" },
+    { "fullName": "Grace Kim", "title": "Client Operations Specialist", "department": "Operations", "email": "grace.kim@northbridge.example" },
+    { "fullName": "Noah Foster", "title": "Systems Administrator", "department": "Information Technology", "email": "noah.foster@northbridge.example" },
+    { "fullName": "Maya Singh", "title": "Talent Coordinator", "department": "Human Resources", "email": "maya.singh@northbridge.example" }
+  ],
+  "projects": [
+    { "name": "Quarterly Portfolio Review", "description": "Prepare advisory packets for top-tier clients.", "status": "active" },
+    { "name": "SOX Control Refresh", "description": "Update internal control narratives and evidence collection.", "status": "active" },
+    { "name": "Endpoint Upgrade Initiative", "description": "Refresh employee laptops and enforce new baseline policies.", "status": "planned" },
+    { "name": "Benefits Renewal", "description": "Coordinate annual benefits review and employee communications.", "status": "planned" }
+  ],
+  "documentThemes": [
+    { "name": "Finance", "description": "Budgets, forecasts, statements, and board-ready financial narratives." },
+    { "name": "HR", "description": "Policies, onboarding guides, reviews, and employee communications." },
+    { "name": "IT", "description": "Access procedures, system inventories, and security incident communications." },
+    { "name": "Operations", "description": "Runbooks, vendor packets, and client onboarding documents." },
+    { "name": "Compliance", "description": "Regulatory summaries, audit checklists, and policy attestations." }
+  ]
+}

@@ -11,6 +11,7 @@ import (
 	"github.com/natet/honeygen/backend/internal/config"
 	appdb "github.com/natet/honeygen/backend/internal/db"
 	"github.com/natet/honeygen/backend/internal/models"
+	"github.com/natet/honeygen/backend/internal/worldmodels"
 )
 
 type APIApp struct {
@@ -18,6 +19,7 @@ type APIApp struct {
 	Logger        *slog.Logger
 	DB            *sql.DB
 	StatusQueries appdb.StatusSummaryReader
+	WorldModels   *worldmodels.Service
 }
 
 func NewAPIApp(ctx context.Context, cfg config.Config, logger *slog.Logger) (*APIApp, error) {
@@ -46,11 +48,18 @@ func NewAPIApp(ctx context.Context, cfg config.Config, logger *slog.Logger) (*AP
 		return nil, err
 	}
 
+	worldModelService := worldmodels.NewService(worldmodels.NewRepository(database))
+	if err := worldModelService.EnsureSeedData(ctx); err != nil {
+		_ = database.Close()
+		return nil, fmt.Errorf("seed world models: %w", err)
+	}
+
 	return &APIApp{
 		Config:        cfg,
 		Logger:        logger,
 		DB:            database,
 		StatusQueries: appdb.NewStatusQueries(database),
+		WorldModels:   worldModelService,
 	}, nil
 }
 

@@ -49,8 +49,8 @@ func TestServiceRunPersistsJobsAssetsAndFiles(t *testing.T) {
 	if job.CompletedAt == nil {
 		t.Fatal("job.CompletedAt is nil")
 	}
-	if len(job.Logs) == 0 {
-		t.Fatal("job.Logs is empty")
+	if len(job.Summary.Logs) == 0 {
+		t.Fatal("job.Summary.Logs is empty")
 	}
 
 	storedJob, err := NewJobStore(database).Get(context.Background(), job.ID)

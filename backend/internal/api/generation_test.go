@@ -29,6 +29,7 @@ func TestGenerationAndAssetsEndpointsRunBrowseAndPreview(t *testing.T) {
 	if runRec.Code != http.StatusCreated {
 		t.Fatalf("run status code = %d, want %d, body=%s", runRec.Code, http.StatusCreated, runRec.Body.String())
 	}
+	assertJobLogsAppearOnlyInSummary(t, runRec.Body.Bytes())
 
 	var job struct {
 		ID           string `json:"id"`
@@ -75,6 +76,7 @@ func TestGenerationAndAssetsEndpointsRunBrowseAndPreview(t *testing.T) {
 	if jobRec.Code != http.StatusOK {
 		t.Fatalf("job detail status code = %d, want %d, body=%s", jobRec.Code, http.StatusOK, jobRec.Body.String())
 	}
+	assertJobLogsAppearOnlyInSummary(t, jobRec.Body.Bytes())
 
 	assetsReq := httptest.NewRequest(http.MethodGet, "/api/assets?generation_job_id="+job.ID+"&limit=200", nil)
 	assetsRec := httptest.NewRecorder()
@@ -222,4 +224,25 @@ func containsString(items []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func assertJobLogsAppearOnlyInSummary(t *testing.T, body []byte) {
+	t.Helper()
+
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		t.Fatalf("json.Unmarshal(job payload) error = %v", err)
+	}
+	if _, ok := payload["logs"]; ok {
+		t.Fatalf("job payload includes top-level logs: %s", string(body))
+	}
+
+	summary, ok := payload["summary"].(map[string]any)
+	if !ok {
+		t.Fatalf("job payload summary missing or wrong type: %s", string(body))
+	}
+	logs, ok := summary["logs"].([]any)
+	if !ok || len(logs) == 0 {
+		t.Fatalf("job payload summary.logs missing or empty: %s", string(body))
+	}
 }

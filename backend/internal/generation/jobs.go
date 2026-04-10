@@ -44,7 +44,6 @@ type Job struct {
 	CompletedAt  *time.Time `json:"completed_at,omitempty"`
 	ErrorMessage string     `json:"error_message,omitempty"`
 	Summary      Summary    `json:"summary"`
-	Logs         []LogEntry `json:"logs,omitempty"`
 	CreatedAt    time.Time  `json:"created_at"`
 	UpdatedAt    time.Time  `json:"updated_at"`
 }
@@ -247,7 +246,6 @@ func scanJob(scanner jobScanner) (Job, error) {
 			return Job{}, fmt.Errorf("decode generation job summary for %q: %w", job.ID, err)
 		}
 	}
-	job.Logs = append([]LogEntry(nil), job.Summary.Logs...)
 
 	return job, nil
 }

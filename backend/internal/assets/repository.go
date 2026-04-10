@@ -6,11 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path"
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/natet/honeygen/backend/internal/storage"
 )
 
 var ErrNotFound = errors.New("asset not found")
@@ -137,12 +136,7 @@ func (r *Repository) List(ctx context.Context, options ListOptions) ([]Asset, er
 }
 
 func (r *Repository) Tree(ctx context.Context, options ListOptions) ([]*TreeNode, error) {
-	items, err := r.List(ctx, ListOptions{
-		WorldModelID:    options.WorldModelID,
-		GenerationJobID: options.GenerationJobID,
-		Limit:           10000,
-		Offset:          0,
-	})
+	items, err := r.listAllForTree(ctx, options)
 	if err != nil {
 		return nil, err
 	}
@@ -166,6 +160,31 @@ func (r *Repository) Tree(ctx context.Context, options ListOptions) ([]*TreeNode
 	})
 
 	return root, nil
+}
+
+func (r *Repository) listAllForTree(ctx context.Context, options ListOptions) ([]Asset, error) {
+	const pageSize = 1000
+
+	var (
+		allItems []Asset
+		offset   int
+	)
+	for {
+		items, err := r.List(ctx, ListOptions{
+			WorldModelID:    options.WorldModelID,
+			GenerationJobID: options.GenerationJobID,
+			Limit:           pageSize,
+			Offset:          offset,
+		})
+		if err != nil {
+			return nil, err
+		}
+		allItems = append(allItems, items...)
+		if len(items) < pageSize {
+			return allItems, nil
+		}
+		offset += len(items)
+	}
 }
 
 type rowScanner interface {
@@ -215,19 +234,13 @@ func scanAsset(scanner rowScanner) (Asset, error) {
 func displayPath(item Asset, options ListOptions) string {
 	trimmed := strings.Trim(item.Path, "/")
 	if options.GenerationJobID != "" {
-		prefix, err := storage.JoinRelative("generated", item.WorldModelID, options.GenerationJobID)
-		if err == nil {
-			if relative, ok := trimTreePrefix(trimmed, prefix); ok {
-				return relative
-			}
+		if relative, ok := trimTreePrefix(trimmed, joinDisplayPrefix("generated", item.WorldModelID, options.GenerationJobID)); ok {
+			return relative
 		}
 	}
 	if options.WorldModelID != "" {
-		prefix, err := storage.JoinRelative("generated", options.WorldModelID)
-		if err == nil {
-			if relative, ok := trimTreePrefix(trimmed, prefix); ok {
-				return relative
-			}
+		if relative, ok := trimTreePrefix(trimmed, joinDisplayPrefix("generated", options.WorldModelID)); ok {
+			return relative
 		}
 		if relative, ok := trimTreePrefix(trimmed, options.WorldModelID); ok {
 			return relative
@@ -249,6 +262,21 @@ func trimTreePrefix(value string, prefix string) (string, bool) {
 	default:
 		return value, false
 	}
+}
+
+func joinDisplayPrefix(parts ...string) string {
+	segments := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.Trim(part, "/")
+		if part == "" {
+			continue
+		}
+		segments = append(segments, part)
+	}
+	if len(segments) == 0 {
+		return ""
+	}
+	return path.Join(segments...)
 }
 
 func sortTree(node *TreeNode) {

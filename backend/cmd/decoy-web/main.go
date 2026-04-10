@@ -2,14 +2,14 @@ package main
 
 import (
 	"fmt"
+	"github.com/natet/honeygen/backend/internal/config"
 	"log"
 	"net/http"
-	"os"
 )
 
 func main() {
-	addr := envOrDefault("HTTP_ADDR", ":8081")
-	generatedAssetsDir := envOrDefault("GENERATED_ASSETS_DIR", "/app/storage/generated")
+	addr := config.EnvOrDefault("HTTP_ADDR", ":8081")
+	generatedAssetsDir := config.EnvOrDefault("GENERATED_ASSETS_DIR", "/app/storage/generated")
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -26,11 +26,4 @@ func main() {
 	if err := http.ListenAndServe(addr, mux); err != nil {
 		log.Fatal(err)
 	}
-}
-
-func envOrDefault(key, fallback string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return fallback
 }

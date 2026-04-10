@@ -76,6 +76,102 @@ func TestServiceCreatePreservesSpecShape(t *testing.T) {
 	}
 }
 
+func TestServiceCreatePreservesSubmittedJSONBlob(t *testing.T) {
+	database := newTestDatabase(t)
+	service := NewService(NewRepository(database))
+
+	payload := []byte(`{
+		"organization": {
+			"name": "Acme Advisory",
+			"description": "  Crafted for testing  ",
+			"industry": "Financial Services",
+			"size": "mid-size",
+			"region": "United States",
+			"domain_theme": "acmeadvisory.local"
+		},
+		"branding": {
+			"tone": "professional"
+		},
+		"departments": ["Finance"],
+		"employees": [
+			{"name":"Alex Morgan","role":"Analyst","department":"Finance"}
+		],
+		"projects": ["Portfolio Refresh"],
+		"document_themes": ["budgets"]
+	}`)
+
+	model, err := service.Create(context.Background(), payload)
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	if model.JSONBlob != string(payload) {
+		t.Fatalf("model.JSONBlob = %q, want original payload %q", model.JSONBlob, string(payload))
+	}
+	if model.Description != "Crafted for testing" {
+		t.Fatalf("model.Description = %q, want %q", model.Description, "Crafted for testing")
+	}
+}
+
+func TestServiceUpdatePreservesSubmittedJSONBlob(t *testing.T) {
+	database := newTestDatabase(t)
+	service := NewService(NewRepository(database))
+
+	created, err := service.Create(context.Background(), []byte(`{
+		"organization": {
+			"name": "Acme Advisory",
+			"industry": "Financial Services",
+			"size": "mid-size",
+			"region": "United States",
+			"domain_theme": "acmeadvisory.local"
+		},
+		"branding": {
+			"tone": "professional"
+		},
+		"departments": ["Finance"],
+		"employees": [
+			{"name":"Alex Morgan","role":"Analyst","department":"Finance"}
+		],
+		"projects": ["Portfolio Refresh"],
+		"document_themes": ["budgets"]
+	}`))
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	payload := []byte(`{
+		"organization": {
+			"name": "Acme Advisory Updated",
+			"description": "  Updated summary  ",
+			"industry": "Financial Services",
+			"size": "mid-size",
+			"region": "Canada",
+			"domain_theme": "acmeadvisory.ca"
+		},
+		"branding": {
+			"tone": "modern"
+		},
+		"departments": ["Finance"],
+		"employees": [
+			{"name":"Alex Morgan","role":"Analyst","department":"Finance"}
+		],
+		"projects": ["Portfolio Refresh"],
+		"document_themes": ["compliance"]
+	}`)
+
+	model, err := service.Update(context.Background(), created.ID, payload)
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+
+	if model.JSONBlob != string(payload) {
+		t.Fatalf("model.JSONBlob = %q, want original payload %q", model.JSONBlob, string(payload))
+	}
+	if model.Description != "Updated summary" {
+		t.Fatalf("model.Description = %q, want %q", model.Description, "Updated summary")
+	}
+}
+
 func TestServiceCreateValidatesRequiredFields(t *testing.T) {
 	database := newTestDatabase(t)
 	service := NewService(NewRepository(database))

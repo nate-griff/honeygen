@@ -53,7 +53,7 @@ type Organization struct {
 
 type Branding struct {
 	Tone   string   `json:"tone"`
-	Colors []string `json:"colors,omitempty"`
+	Colors []string `json:"colors"`
 }
 
 type Employee struct {

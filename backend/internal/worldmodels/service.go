@@ -46,7 +46,7 @@ func (s *Service) Get(ctx context.Context, id string) (StoredWorldModel, error) 
 }
 
 func (s *Service) Create(ctx context.Context, payload []byte) (StoredWorldModel, error) {
-	normalizedPayload, name, description, err := normalizePayload(payload)
+	name, description, err := validatePayload(payload)
 	if err != nil {
 		return StoredWorldModel{}, err
 	}
@@ -55,12 +55,12 @@ func (s *Service) Create(ctx context.Context, payload []byte) (StoredWorldModel,
 		ID:          s.idGenerator(),
 		Name:        name,
 		Description: description,
-		JSONBlob:    string(normalizedPayload),
+		JSONBlob:    string(payload),
 	})
 }
 
 func (s *Service) Update(ctx context.Context, id string, payload []byte) (StoredWorldModel, error) {
-	normalizedPayload, name, description, err := normalizePayload(payload)
+	name, description, err := validatePayload(payload)
 	if err != nil {
 		return StoredWorldModel{}, err
 	}
@@ -69,7 +69,7 @@ func (s *Service) Update(ctx context.Context, id string, payload []byte) (Stored
 		ID:          id,
 		Name:        name,
 		Description: description,
-		JSONBlob:    string(normalizedPayload),
+		JSONBlob:    string(payload),
 	})
 }
 
@@ -80,7 +80,7 @@ func (s *Service) EnsureSeedData(ctx context.Context) error {
 		return err
 	}
 
-	normalizedPayload, name, description, err := normalizePayload(s.demoSeed)
+	name, description, err := validatePayload(s.demoSeed)
 	if err != nil {
 		return fmt.Errorf("normalize demo world model: %w", err)
 	}
@@ -89,7 +89,7 @@ func (s *Service) EnsureSeedData(ctx context.Context) error {
 		ID:          DemoWorldModelID,
 		Name:        name,
 		Description: description,
-		JSONBlob:    string(normalizedPayload),
+		JSONBlob:    string(s.demoSeed),
 	})
 	if errors.Is(err, ErrAlreadyExists) {
 		return nil
@@ -103,6 +103,7 @@ func Expand(item StoredWorldModel) (map[string]any, error) {
 		return nil, fmt.Errorf("decode world model payload: %w", err)
 	}
 
+	normalizeOptionalArrayFields(payload)
 	payload["id"] = item.ID
 	payload["name"] = item.Name
 	payload["description"] = item.Description
@@ -117,6 +118,7 @@ func buildSummary(item StoredWorldModel) (WorldModelSummary, error) {
 	if err := json.Unmarshal([]byte(item.JSONBlob), &payload); err != nil {
 		return WorldModelSummary{}, fmt.Errorf("decode world model summary for %q: %w", item.ID, err)
 	}
+	normalizeOptionalSlices(&payload)
 
 	return WorldModelSummary{
 		ID:                 item.ID,
@@ -131,46 +133,46 @@ func buildSummary(item StoredWorldModel) (WorldModelSummary, error) {
 	}, nil
 }
 
-func normalizePayload(payload []byte) ([]byte, string, string, error) {
+func validatePayload(payload []byte) (string, string, error) {
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(payload, &raw); err != nil {
-		return nil, "", "", ValidationError{Message: "request body must be a JSON object"}
+		return "", "", ValidationError{Message: "request body must be a JSON object"}
 	}
 
 	orgRaw, ok := raw["organization"]
 	if !ok || isNullJSON(orgRaw) {
-		return nil, "", "", ValidationError{Message: "organization is required"}
+		return "", "", ValidationError{Message: "organization is required"}
 	}
 	var organization Organization
 	if err := json.Unmarshal(orgRaw, &organization); err != nil {
-		return nil, "", "", ValidationError{Message: "organization must be an object"}
+		return "", "", ValidationError{Message: "organization must be an object"}
 	}
 	if trimmed(organization.Name) == "" {
-		return nil, "", "", ValidationError{Message: "organization.name is required"}
+		return "", "", ValidationError{Message: "organization.name is required"}
 	}
 	if trimmed(organization.Industry) == "" {
-		return nil, "", "", ValidationError{Message: "organization.industry is required"}
+		return "", "", ValidationError{Message: "organization.industry is required"}
 	}
 	if trimmed(organization.Size) == "" {
-		return nil, "", "", ValidationError{Message: "organization.size is required"}
+		return "", "", ValidationError{Message: "organization.size is required"}
 	}
 	if trimmed(organization.Region) == "" {
-		return nil, "", "", ValidationError{Message: "organization.region is required"}
+		return "", "", ValidationError{Message: "organization.region is required"}
 	}
 	if trimmed(organization.DomainTheme) == "" {
-		return nil, "", "", ValidationError{Message: "organization.domain_theme is required"}
+		return "", "", ValidationError{Message: "organization.domain_theme is required"}
 	}
 
 	brandingRaw, ok := raw["branding"]
 	if !ok || isNullJSON(brandingRaw) {
-		return nil, "", "", ValidationError{Message: "branding is required"}
+		return "", "", ValidationError{Message: "branding is required"}
 	}
 	var branding Branding
 	if err := json.Unmarshal(brandingRaw, &branding); err != nil {
-		return nil, "", "", ValidationError{Message: "branding must be an object"}
+		return "", "", ValidationError{Message: "branding must be an object"}
 	}
 	if trimmed(branding.Tone) == "" {
-		return nil, "", "", ValidationError{Message: "branding.tone is required"}
+		return "", "", ValidationError{Message: "branding.tone is required"}
 	}
 
 	if err := validateRequiredArray(raw, "departments", func(data []byte) error {
@@ -185,7 +187,7 @@ func normalizePayload(payload []byte) ([]byte, string, string, error) {
 		}
 		return nil
 	}); err != nil {
-		return nil, "", "", err
+		return "", "", err
 	}
 
 	if err := validateRequiredArray(raw, "employees", func(data []byte) error {
@@ -206,7 +208,7 @@ func normalizePayload(payload []byte) ([]byte, string, string, error) {
 		}
 		return nil
 	}); err != nil {
-		return nil, "", "", err
+		return "", "", err
 	}
 
 	if err := validateRequiredArray(raw, "projects", func(data []byte) error {
@@ -221,7 +223,7 @@ func normalizePayload(payload []byte) ([]byte, string, string, error) {
 		}
 		return nil
 	}); err != nil {
-		return nil, "", "", err
+		return "", "", err
 	}
 
 	if err := validateRequiredArray(raw, "document_themes", func(data []byte) error {
@@ -236,42 +238,27 @@ func normalizePayload(payload []byte) ([]byte, string, string, error) {
 		}
 		return nil
 	}); err != nil {
-		return nil, "", "", err
+		return "", "", err
 	}
 
-	var worldModel WorldModel
-	if err := json.Unmarshal(payload, &worldModel); err != nil {
-		return nil, "", "", ValidationError{Message: "request body must be a JSON object"}
+	return trimmed(organization.Name), trimmed(organization.Description), nil
+}
+
+func normalizeOptionalSlices(worldModel *WorldModel) {
+	if worldModel.Branding.Colors == nil {
+		worldModel.Branding.Colors = []string{}
+	}
+}
+
+func normalizeOptionalArrayFields(payload map[string]any) {
+	nested, ok := payload["branding"].(map[string]any)
+	if !ok {
+		return
 	}
 
-	worldModel.Organization.Name = trimmed(worldModel.Organization.Name)
-	worldModel.Organization.Description = trimmed(worldModel.Organization.Description)
-	worldModel.Organization.Industry = trimmed(worldModel.Organization.Industry)
-	worldModel.Organization.Size = trimmed(worldModel.Organization.Size)
-	worldModel.Organization.Region = trimmed(worldModel.Organization.Region)
-	worldModel.Organization.DomainTheme = trimmed(worldModel.Organization.DomainTheme)
-	worldModel.Branding.Tone = trimmed(worldModel.Branding.Tone)
-	for i := range worldModel.Departments {
-		worldModel.Departments[i] = trimmed(worldModel.Departments[i])
+	if colors, exists := nested["colors"]; !exists || colors == nil {
+		nested["colors"] = []any{}
 	}
-	for i := range worldModel.Employees {
-		worldModel.Employees[i].Name = trimmed(worldModel.Employees[i].Name)
-		worldModel.Employees[i].Role = trimmed(worldModel.Employees[i].Role)
-		worldModel.Employees[i].Department = trimmed(worldModel.Employees[i].Department)
-	}
-	for i := range worldModel.Projects {
-		worldModel.Projects[i] = trimmed(worldModel.Projects[i])
-	}
-	for i := range worldModel.DocumentThemes {
-		worldModel.DocumentThemes[i] = trimmed(worldModel.DocumentThemes[i])
-	}
-
-	normalizedPayload, err := json.Marshal(worldModel)
-	if err != nil {
-		return nil, "", "", fmt.Errorf("marshal normalized world model: %w", err)
-	}
-
-	return normalizedPayload, trimmed(organization.Name), trimmed(organization.Description), nil
 }
 
 func validateRequiredArray(raw map[string]json.RawMessage, key string, validate func([]byte) error) error {

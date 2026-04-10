@@ -109,6 +109,7 @@ func TestWorldModelsCreateFetchAndUpdate(t *testing.T) {
 	if len(created.DocumentThemes) != 1 || created.DocumentThemes[0] != "budgets" {
 		t.Fatalf("created.DocumentThemes = %+v, want one document theme", created.DocumentThemes)
 	}
+	assertBrandingColorsEmptyArray(t, createRec.Body.Bytes())
 
 	getReq := httptest.NewRequest(http.MethodGet, "/api/world-models/"+created.ID, nil)
 	getRec := httptest.NewRecorder()
@@ -118,6 +119,7 @@ func TestWorldModelsCreateFetchAndUpdate(t *testing.T) {
 	if getRec.Code != http.StatusOK {
 		t.Fatalf("get status code = %d, want %d, body=%s", getRec.Code, http.StatusOK, getRec.Body.String())
 	}
+	assertBrandingColorsEmptyArray(t, getRec.Body.Bytes())
 
 	updateReq := httptest.NewRequest(http.MethodPut, "/api/world-models/"+created.ID, strings.NewReader(`{
 		"organization": {
@@ -169,6 +171,7 @@ func TestWorldModelsCreateFetchAndUpdate(t *testing.T) {
 	if len(updated.DocumentThemes) != 1 || updated.DocumentThemes[0] != "compliance" {
 		t.Fatalf("updated.DocumentThemes = %+v, want one compliance theme", updated.DocumentThemes)
 	}
+	assertBrandingColorsEmptyArray(t, updateRec.Body.Bytes())
 }
 
 func TestWorldModelsValidationErrorsUseCanonicalShape(t *testing.T) {
@@ -186,4 +189,26 @@ func TestWorldModelsValidationErrorsUseCanonicalShape(t *testing.T) {
 			Message: "organization is required",
 		},
 	})
+}
+
+func assertBrandingColorsEmptyArray(t *testing.T, body []byte) {
+	t.Helper()
+
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+
+	branding, ok := payload["branding"].(map[string]any)
+	if !ok {
+		t.Fatalf("payload[branding] = %#v, want object", payload["branding"])
+	}
+
+	colors, ok := branding["colors"].([]any)
+	if !ok {
+		t.Fatalf("branding[colors] = %#v, want empty array", branding["colors"])
+	}
+	if len(colors) != 0 {
+		t.Fatalf("branding[colors] = %#v, want empty array", branding["colors"])
+	}
 }

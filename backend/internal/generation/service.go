@@ -156,7 +156,7 @@ func (s *Service) Run(ctx context.Context, request RunRequest) (Job, error) {
 			return job, err
 		}
 
-		storedPath, err := storage.JoinRelative(request.WorldModelID, job.ID, entry.Path)
+		storedPath, err := storage.JoinRelative("generated", request.WorldModelID, job.ID, entry.Path)
 		if err != nil {
 			appendLog("error", "storage path invalid: "+err.Error(), entry.Path, entry.Category)
 			job, _ = s.jobs.SetFailed(ctx, job.ID, summary, err.Error())

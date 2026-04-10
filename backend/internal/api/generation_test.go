@@ -99,7 +99,7 @@ func TestGenerationAndAssetsEndpointsRunBrowseAndPreview(t *testing.T) {
 	}
 
 	var previewAssetID, pdfAssetID string
-	expectedPrefix := "northbridge-financial/" + job.ID + "/"
+	expectedPrefix := "generated/northbridge-financial/" + job.ID + "/"
 	for _, item := range assetsResponse.Items {
 		if !strings.HasPrefix(item.Path, expectedPrefix) {
 			t.Fatalf("asset path = %q, want prefix %q", item.Path, expectedPrefix)

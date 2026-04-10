@@ -33,7 +33,7 @@ func TestServiceRunPersistsJobsAssetsAndFiles(t *testing.T) {
 		Provider:    generationStubProvider{},
 		Jobs:        NewJobStore(database),
 		Assets:      assets.NewRepository(database),
-		Storage:     storage.NewFilesystem(filepath.Join(root, "generated")),
+		Storage:     storage.NewFilesystem(root),
 		Renderers: rendering.NewRegistry(rendering.RegistryConfig{
 			PDF: rendering.StaticPDFRenderer([]byte("%PDF-1.4\n%stub\n")),
 		}),
@@ -73,12 +73,12 @@ func TestServiceRunPersistsJobsAssetsAndFiles(t *testing.T) {
 	}
 
 	var sawHTML, sawMarkdown, sawCSV, sawText, sawPDF bool
-	expectedPrefix := "world-1/" + job.ID + "/"
+	expectedPrefix := "generated/world-1/" + job.ID + "/"
 	for _, item := range items {
 		if !strings.HasPrefix(item.Path, expectedPrefix) {
 			t.Fatalf("asset path = %q, want prefix %q", item.Path, expectedPrefix)
 		}
-		fullPath := filepath.Join(root, "generated", filepath.FromSlash(item.Path))
+		fullPath := filepath.Join(root, filepath.FromSlash(item.Path))
 		if _, err := os.Stat(fullPath); err != nil {
 			t.Fatalf("generated file %q missing: %v", fullPath, err)
 		}
@@ -118,7 +118,7 @@ func TestServiceRunMarksJobFailedWhenProviderErrors(t *testing.T) {
 		Provider:    failingGenerationProvider{},
 		Jobs:        NewJobStore(database),
 		Assets:      assets.NewRepository(database),
-		Storage:     storage.NewFilesystem(filepath.Join(t.TempDir(), "generated")),
+		Storage:     storage.NewFilesystem(t.TempDir()),
 		Renderers: rendering.NewRegistry(rendering.RegistryConfig{
 			PDF: rendering.StaticPDFRenderer([]byte("%PDF-1.4\n%stub\n")),
 		}),

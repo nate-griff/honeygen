@@ -28,6 +28,9 @@ func (p *Planner) Plan(worldModelID string, model worldmodels.WorldModel) ([]Man
 	if strings.TrimSpace(worldModelID) == "" {
 		return nil, fmt.Errorf("world model id is required")
 	}
+	if len(model.Departments) == 0 || len(model.Employees) == 0 || len(model.Projects) == 0 || len(model.DocumentThemes) == 0 {
+		return nil, fmt.Errorf("world model must include at least one department, employee, project, and document theme")
+	}
 
 	departments := append([]string(nil), model.Departments...)
 	sort.Strings(departments)

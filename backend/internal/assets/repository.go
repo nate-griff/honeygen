@@ -215,7 +215,7 @@ func scanAsset(scanner rowScanner) (Asset, error) {
 func displayPath(item Asset, options ListOptions) string {
 	trimmed := strings.Trim(item.Path, "/")
 	if options.GenerationJobID != "" {
-		prefix, err := storage.JoinRelative(item.WorldModelID, options.GenerationJobID)
+		prefix, err := storage.JoinRelative("generated", item.WorldModelID, options.GenerationJobID)
 		if err == nil {
 			if relative, ok := trimTreePrefix(trimmed, prefix); ok {
 				return relative
@@ -223,6 +223,12 @@ func displayPath(item Asset, options ListOptions) string {
 		}
 	}
 	if options.WorldModelID != "" {
+		prefix, err := storage.JoinRelative("generated", options.WorldModelID)
+		if err == nil {
+			if relative, ok := trimTreePrefix(trimmed, prefix); ok {
+				return relative
+			}
+		}
 		if relative, ok := trimTreePrefix(trimmed, options.WorldModelID); ok {
 			return relative
 		}

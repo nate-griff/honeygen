@@ -194,6 +194,9 @@ func validatePayload(payload []byte) (string, string, error) {
 		if err := json.Unmarshal(data, &departments); err != nil {
 			return ValidationError{Message: "departments must be an array"}
 		}
+		if len(departments) == 0 {
+			return ValidationError{Message: "departments must not be empty"}
+		}
 		for _, department := range departments {
 			if trimmed(department) == "" {
 				return ValidationError{Message: "departments[] must be a non-empty string"}
@@ -208,6 +211,9 @@ func validatePayload(payload []byte) (string, string, error) {
 		var employees []Employee
 		if err := json.Unmarshal(data, &employees); err != nil {
 			return ValidationError{Message: "employees must be an array"}
+		}
+		if len(employees) == 0 {
+			return ValidationError{Message: "employees must not be empty"}
 		}
 		for _, employee := range employees {
 			if trimmed(employee.Name) == "" {
@@ -230,6 +236,9 @@ func validatePayload(payload []byte) (string, string, error) {
 		if err := json.Unmarshal(data, &projects); err != nil {
 			return ValidationError{Message: "projects must be an array"}
 		}
+		if len(projects) == 0 {
+			return ValidationError{Message: "projects must not be empty"}
+		}
 		for _, project := range projects {
 			if trimmed(project) == "" {
 				return ValidationError{Message: "projects[] must be a non-empty string"}
@@ -244,6 +253,9 @@ func validatePayload(payload []byte) (string, string, error) {
 		var documentThemes []string
 		if err := json.Unmarshal(data, &documentThemes); err != nil {
 			return ValidationError{Message: "document_themes must be an array"}
+		}
+		if len(documentThemes) == 0 {
+			return ValidationError{Message: "document_themes must not be empty"}
 		}
 		for _, theme := range documentThemes {
 			if trimmed(theme) == "" {

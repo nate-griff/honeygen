@@ -67,7 +67,7 @@ func NewAPIApp(ctx context.Context, cfg config.Config, logger *slog.Logger) (*AP
 
 	assetRepo := assets.NewRepository(database)
 	jobStore := generation.NewJobStore(database)
-	filesystem := storage.NewFilesystem(cfg.GeneratedAssetsDir)
+	filesystem := storage.NewFilesystem(cfg.StorageRoot)
 
 	return &APIApp{
 		Config:        cfg,

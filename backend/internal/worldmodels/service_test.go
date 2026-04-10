@@ -228,18 +228,38 @@ func TestServiceCreateValidatesRequiredFields(t *testing.T) {
 		},
 		{
 			name:    "missing employees",
-			payload: `{"organization":{"name":"Acme Advisory","industry":"Financial Services","size":"mid-size","region":"United States","domain_theme":"acmeadvisory.local"},"branding":{"tone":"professional"},"departments":[],"projects":[],"document_themes":[]}`,
+			payload: `{"organization":{"name":"Acme Advisory","industry":"Financial Services","size":"mid-size","region":"United States","domain_theme":"acmeadvisory.local"},"branding":{"tone":"professional"},"departments":["Finance"],"projects":["Portfolio Refresh"],"document_themes":["budgets"]}`,
 			message: "employees is required",
 		},
 		{
 			name:    "missing projects",
-			payload: `{"organization":{"name":"Acme Advisory","industry":"Financial Services","size":"mid-size","region":"United States","domain_theme":"acmeadvisory.local"},"branding":{"tone":"professional"},"departments":[],"employees":[],"document_themes":[]}`,
+			payload: `{"organization":{"name":"Acme Advisory","industry":"Financial Services","size":"mid-size","region":"United States","domain_theme":"acmeadvisory.local"},"branding":{"tone":"professional"},"departments":["Finance"],"employees":[{"name":"Taylor Reed","role":"Analyst","department":"Finance"}],"document_themes":["budgets"]}`,
 			message: "projects is required",
 		},
 		{
 			name:    "missing document themes",
-			payload: `{"organization":{"name":"Acme Advisory","industry":"Financial Services","size":"mid-size","region":"United States","domain_theme":"acmeadvisory.local"},"branding":{"tone":"professional"},"departments":[],"employees":[],"projects":[]}`,
+			payload: `{"organization":{"name":"Acme Advisory","industry":"Financial Services","size":"mid-size","region":"United States","domain_theme":"acmeadvisory.local"},"branding":{"tone":"professional"},"departments":["Finance"],"employees":[{"name":"Taylor Reed","role":"Analyst","department":"Finance"}],"projects":["Portfolio Refresh"]}`,
 			message: "document_themes is required",
+		},
+		{
+			name:    "empty departments",
+			payload: `{"organization":{"name":"Acme Advisory","industry":"Financial Services","size":"mid-size","region":"United States","domain_theme":"acmeadvisory.local"},"branding":{"tone":"professional"},"departments":[],"employees":[{"name":"Taylor Reed","role":"Analyst","department":"Finance"}],"projects":["Portfolio Refresh"],"document_themes":["budgets"]}`,
+			message: "departments must not be empty",
+		},
+		{
+			name:    "empty employees",
+			payload: `{"organization":{"name":"Acme Advisory","industry":"Financial Services","size":"mid-size","region":"United States","domain_theme":"acmeadvisory.local"},"branding":{"tone":"professional"},"departments":["Finance"],"employees":[],"projects":["Portfolio Refresh"],"document_themes":["budgets"]}`,
+			message: "employees must not be empty",
+		},
+		{
+			name:    "empty projects",
+			payload: `{"organization":{"name":"Acme Advisory","industry":"Financial Services","size":"mid-size","region":"United States","domain_theme":"acmeadvisory.local"},"branding":{"tone":"professional"},"departments":["Finance"],"employees":[{"name":"Taylor Reed","role":"Analyst","department":"Finance"}],"projects":[],"document_themes":["budgets"]}`,
+			message: "projects must not be empty",
+		},
+		{
+			name:    "empty document themes",
+			payload: `{"organization":{"name":"Acme Advisory","industry":"Financial Services","size":"mid-size","region":"United States","domain_theme":"acmeadvisory.local"},"branding":{"tone":"professional"},"departments":["Finance"],"employees":[{"name":"Taylor Reed","role":"Analyst","department":"Finance"}],"projects":["Portfolio Refresh"],"document_themes":[]}`,
+			message: "document_themes must not be empty",
 		},
 	}
 

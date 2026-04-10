@@ -156,7 +156,14 @@ func (s *Service) Run(ctx context.Context, request RunRequest) (Job, error) {
 			return job, err
 		}
 
-		storedFile, err := s.storage.Write(ctx, entry.Path, output.Bytes)
+		storedPath, err := storage.JoinRelative(request.WorldModelID, job.ID, entry.Path)
+		if err != nil {
+			appendLog("error", "storage path invalid: "+err.Error(), entry.Path, entry.Category)
+			job, _ = s.jobs.SetFailed(ctx, job.ID, summary, err.Error())
+			return job, err
+		}
+
+		storedFile, err := s.storage.Write(ctx, storedPath, output.Bytes)
 		if err != nil {
 			appendLog("error", "storage write failed: "+err.Error(), entry.Path, entry.Category)
 			job, _ = s.jobs.SetFailed(ctx, job.ID, summary, err.Error())

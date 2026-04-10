@@ -73,7 +73,11 @@ func TestServiceRunPersistsJobsAssetsAndFiles(t *testing.T) {
 	}
 
 	var sawHTML, sawMarkdown, sawCSV, sawText, sawPDF bool
+	expectedPrefix := "world-1/" + job.ID + "/"
 	for _, item := range items {
+		if !strings.HasPrefix(item.Path, expectedPrefix) {
+			t.Fatalf("asset path = %q, want prefix %q", item.Path, expectedPrefix)
+		}
 		fullPath := filepath.Join(root, "generated", filepath.FromSlash(item.Path))
 		if _, err := os.Stat(fullPath); err != nil {
 			t.Fatalf("generated file %q missing: %v", fullPath, err)

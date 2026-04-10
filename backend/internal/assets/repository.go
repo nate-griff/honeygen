@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/natet/honeygen/backend/internal/storage"
 )
 
 var ErrNotFound = errors.New("asset not found")
@@ -147,7 +149,8 @@ func (r *Repository) Tree(ctx context.Context, options ListOptions) ([]*TreeNode
 
 	root := []*TreeNode{}
 	for _, item := range items {
-		segments := strings.Split(strings.Trim(item.Path, "/"), "/")
+		treePath := displayPath(item, options)
+		segments := strings.Split(strings.Trim(treePath, "/"), "/")
 		if len(segments) == 0 {
 			continue
 		}
@@ -207,6 +210,39 @@ func scanAsset(scanner rowScanner) (Asset, error) {
 	}
 
 	return item, nil
+}
+
+func displayPath(item Asset, options ListOptions) string {
+	trimmed := strings.Trim(item.Path, "/")
+	if options.GenerationJobID != "" {
+		prefix, err := storage.JoinRelative(item.WorldModelID, options.GenerationJobID)
+		if err == nil {
+			if relative, ok := trimTreePrefix(trimmed, prefix); ok {
+				return relative
+			}
+		}
+	}
+	if options.WorldModelID != "" {
+		if relative, ok := trimTreePrefix(trimmed, options.WorldModelID); ok {
+			return relative
+		}
+	}
+	return trimmed
+}
+
+func trimTreePrefix(value string, prefix string) (string, bool) {
+	value = strings.Trim(value, "/")
+	prefix = strings.Trim(prefix, "/")
+	switch {
+	case value == "", prefix == "":
+		return value, false
+	case value == prefix:
+		return value, false
+	case strings.HasPrefix(value, prefix+"/"):
+		return strings.TrimPrefix(value, prefix+"/"), true
+	default:
+		return value, false
+	}
 }
 
 func sortTree(node *TreeNode) {

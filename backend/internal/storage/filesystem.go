@@ -69,12 +69,37 @@ func (f *Filesystem) resolve(relativePath string) (string, string, error) {
 		return "", "", fmt.Errorf("storage root is not configured")
 	}
 
-	normalized := path.Clean(strings.ReplaceAll(strings.TrimSpace(relativePath), "\\", "/"))
-	switch {
-	case normalized == ".", normalized == "", strings.HasPrefix(normalized, "../"), normalized == "..", path.IsAbs(normalized):
-		return "", "", fmt.Errorf("invalid storage path %q", relativePath)
+	normalized, err := normalizeRelativePath(relativePath)
+	if err != nil {
+		return "", "", err
 	}
 
 	fullPath := filepath.Join(f.root, filepath.FromSlash(normalized))
 	return normalized, fullPath, nil
+}
+
+func JoinRelative(parts ...string) (string, error) {
+	if len(parts) == 0 {
+		return "", fmt.Errorf("storage path parts are required")
+	}
+
+	segments := make([]string, 0, len(parts))
+	for _, part := range parts {
+		normalized, err := normalizeRelativePath(part)
+		if err != nil {
+			return "", err
+		}
+		segments = append(segments, strings.Split(normalized, "/")...)
+	}
+
+	return path.Join(segments...), nil
+}
+
+func normalizeRelativePath(relativePath string) (string, error) {
+	normalized := path.Clean(strings.ReplaceAll(strings.TrimSpace(relativePath), "\\", "/"))
+	switch {
+	case normalized == ".", normalized == "", strings.HasPrefix(normalized, "../"), normalized == "..", path.IsAbs(normalized):
+		return "", fmt.Errorf("invalid storage path %q", relativePath)
+	}
+	return normalized, nil
 }

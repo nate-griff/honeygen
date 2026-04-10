@@ -8,10 +8,14 @@ import (
 	"os"
 	"time"
 
+	"github.com/natet/honeygen/backend/internal/assets"
 	"github.com/natet/honeygen/backend/internal/config"
 	appdb "github.com/natet/honeygen/backend/internal/db"
+	"github.com/natet/honeygen/backend/internal/generation"
 	"github.com/natet/honeygen/backend/internal/models"
 	"github.com/natet/honeygen/backend/internal/provider"
+	"github.com/natet/honeygen/backend/internal/rendering"
+	"github.com/natet/honeygen/backend/internal/storage"
 	"github.com/natet/honeygen/backend/internal/worldmodels"
 )
 
@@ -22,6 +26,11 @@ type APIApp struct {
 	StatusQueries appdb.StatusSummaryReader
 	WorldModels   *worldmodels.Service
 	Provider      provider.Provider
+	AssetRepo     *assets.Repository
+	JobStore      *generation.JobStore
+	Planner       *generation.Planner
+	Storage       *storage.Filesystem
+	Renderers     rendering.Registry
 }
 
 func NewAPIApp(ctx context.Context, cfg config.Config, logger *slog.Logger) (*APIApp, error) {
@@ -56,6 +65,10 @@ func NewAPIApp(ctx context.Context, cfg config.Config, logger *slog.Logger) (*AP
 		return nil, fmt.Errorf("seed world models: %w", err)
 	}
 
+	assetRepo := assets.NewRepository(database)
+	jobStore := generation.NewJobStore(database)
+	filesystem := storage.NewFilesystem(cfg.GeneratedAssetsDir)
+
 	return &APIApp{
 		Config:        cfg,
 		Logger:        logger,
@@ -63,7 +76,24 @@ func NewAPIApp(ctx context.Context, cfg config.Config, logger *slog.Logger) (*AP
 		StatusQueries: appdb.NewStatusQueries(database),
 		WorldModels:   worldModelService,
 		Provider:      provider.NewOpenAI(cfg.Provider, nil),
+		AssetRepo:     assetRepo,
+		JobStore:      jobStore,
+		Planner:       generation.NewPlanner(),
+		Storage:       filesystem,
+		Renderers:     rendering.NewRegistry(rendering.RegistryConfig{}),
 	}, nil
+}
+
+func (a *APIApp) GenerationService() *generation.Service {
+	return generation.NewService(generation.ServiceConfig{
+		WorldModels: worldmodels.NewRepository(a.DB),
+		Planner:     a.Planner,
+		Provider:    a.Provider,
+		Jobs:        a.JobStore,
+		Assets:      a.AssetRepo,
+		Storage:     a.Storage,
+		Renderers:   a.Renderers,
+	})
 }
 
 func (a *APIApp) Close() error {

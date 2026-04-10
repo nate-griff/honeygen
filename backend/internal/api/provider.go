@@ -33,24 +33,26 @@ func writeProviderError(application *app.APIApp, w http.ResponseWriter, err erro
 	var providerErr *provider.Error
 	if !errors.As(err, &providerErr) {
 		application.Logger.Error("test provider", "error", err)
-		writeError(w, http.StatusBadGateway, "provider_unavailable", "provider is temporarily unavailable")
+		writeError(w, http.StatusBadGateway, "provider_unavailable", provider.SafeErrorMessage(err))
 		return
 	}
 
+	message := provider.SafeErrorMessage(err)
+
 	switch providerErr.Kind {
 	case provider.KindConfig:
-		writeError(w, http.StatusBadRequest, "provider_invalid", providerErr.Error())
+		writeError(w, http.StatusBadRequest, "provider_invalid", message)
 	case provider.KindUnauthorized:
 		application.Logger.Warn("provider authentication failed", "error", err)
-		writeError(w, http.StatusBadGateway, "provider_auth_failed", providerErr.Error())
+		writeError(w, http.StatusBadGateway, "provider_auth_failed", message)
 	case provider.KindConnectivity:
 		application.Logger.Warn("provider connectivity failed", "error", err)
-		writeError(w, http.StatusBadGateway, "provider_unreachable", providerErr.Error())
+		writeError(w, http.StatusBadGateway, "provider_unreachable", message)
 	case provider.KindInvalidResponse:
 		application.Logger.Warn("provider returned invalid response", "error", err)
-		writeError(w, http.StatusBadGateway, "provider_invalid_response", providerErr.Error())
+		writeError(w, http.StatusBadGateway, "provider_invalid_response", message)
 	default:
 		application.Logger.Warn("provider upstream error", "error", err)
-		writeError(w, http.StatusBadGateway, "provider_unavailable", providerErr.Error())
+		writeError(w, http.StatusBadGateway, "provider_unavailable", message)
 	}
 }

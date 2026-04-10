@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"crypto/subtle"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -55,4 +56,17 @@ func internalEventsHandler(application *app.APIApp) http.HandlerFunc {
 
 		writeJSON(w, http.StatusCreated, item)
 	}
+}
+
+func decodeIngestRequest(w http.ResponseWriter, r *http.Request) (events.IngestRequest, error) {
+	body, err := readJSONBody(w, r)
+	if err != nil {
+		return events.IngestRequest{}, err
+	}
+
+	var payload events.IngestRequest
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return events.IngestRequest{}, requestValidationError{message: "request body must be valid JSON"}
+	}
+	return payload, nil
 }

@@ -157,6 +157,28 @@ func TestNewHandlerShowsLandingPageWhenRootIsEmpty(t *testing.T) {
 	}
 }
 
+func TestLandingHandlerCachesDiscoveredLinks(t *testing.T) {
+	discoverCalls := 0
+	handler := landingHandlerWithDiscover(t.TempDir(), func(_ string, _ int) []string {
+		discoverCalls++
+		return []string{"/generated/world-1/job-1/public/report.txt"}
+	})
+
+	for range 2 {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+		}
+	}
+
+	if discoverCalls != 1 {
+		t.Fatalf("discoverCalls = %d, want %d", discoverCalls, 1)
+	}
+}
+
 func TestSourceIPFromRequestIgnoresForwardedHeaderFromUntrustedRemote(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/generated/report.txt", nil)
 	req.RemoteAddr = "198.51.100.10:4321"

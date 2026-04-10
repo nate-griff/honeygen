@@ -62,6 +62,7 @@ func TestMigrateCreatesSpecColumns(t *testing.T) {
 	assertColumnExists(t, db, "events", "status_code")
 	assertColumnExists(t, db, "events", "bytes_sent")
 	assertColumnExists(t, db, "events", "timestamp")
+	assertIndexExists(t, db, "idx_events_source_ip")
 }
 
 func TestMigrateUpgradesExistingMVPSchema(t *testing.T) {
@@ -133,6 +134,7 @@ CREATE TABLE settings (
 	assertColumnExists(t, db, "events", "timestamp")
 	assertColumnExists(t, db, "events", "event_type")
 	assertColumnExists(t, db, "events", "path")
+	assertIndexExists(t, db, "idx_events_source_ip")
 
 	var timestamp string
 	if err := db.QueryRowContext(context.Background(), `SELECT timestamp FROM events WHERE id = 'event-1'`).Scan(&timestamp); err != nil {
@@ -140,6 +142,22 @@ CREATE TABLE settings (
 	}
 	if timestamp != "2024-01-02T03:04:05Z" {
 		t.Fatalf("timestamp = %q, want %q", timestamp, "2024-01-02T03:04:05Z")
+	}
+}
+
+func assertIndexExists(t *testing.T, db *sql.DB, index string) {
+	t.Helper()
+
+	var name string
+	if err := db.QueryRowContext(
+		context.Background(),
+		`SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?`,
+		index,
+	).Scan(&name); err != nil {
+		t.Fatalf("expected index %q to exist, query error = %v", index, err)
+	}
+	if name != index {
+		t.Fatalf("index name = %q, want %q", name, index)
 	}
 }
 

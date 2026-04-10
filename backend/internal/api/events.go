@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -71,17 +70,4 @@ func eventIDFromPath(path string) (string, error) {
 		return "", requestValidationError{message: "event id is required"}
 	}
 	return id, nil
-}
-
-func decodeIngestRequest(w http.ResponseWriter, r *http.Request) (events.IngestRequest, error) {
-	body, err := readJSONBody(w, r)
-	if err != nil {
-		return events.IngestRequest{}, err
-	}
-
-	var payload events.IngestRequest
-	if err := json.Unmarshal(body, &payload); err != nil {
-		return events.IngestRequest{}, requestValidationError{message: "request body must be valid JSON"}
-	}
-	return payload, nil
 }

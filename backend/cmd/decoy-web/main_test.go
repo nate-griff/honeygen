@@ -4,6 +4,8 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -35,5 +37,55 @@ func TestRunShutsDownOnContextCancellation(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("run() did not shut down after context cancellation")
+	}
+}
+
+func TestLoadConfigUsesDecoyDefaultHTTPAddr(t *testing.T) {
+	t.Setenv("HTTP_ADDR", "")
+	t.Setenv("CONFIG_PATH", "")
+	t.Setenv("APP_CONFIG_PATH", "")
+
+	cfg, err := loadConfig("")
+	if err != nil {
+		t.Fatalf("loadConfig() error = %v", err)
+	}
+
+	if cfg.HTTPAddr != ":8081" {
+		t.Fatalf("HTTPAddr = %q, want %q", cfg.HTTPAddr, ":8081")
+	}
+}
+
+func TestLoadConfigPreservesExplicitHTTPAddrOverride(t *testing.T) {
+	t.Setenv("HTTP_ADDR", ":8080")
+	t.Setenv("CONFIG_PATH", "")
+	t.Setenv("APP_CONFIG_PATH", "")
+
+	cfg, err := loadConfig("")
+	if err != nil {
+		t.Fatalf("loadConfig() error = %v", err)
+	}
+
+	if cfg.HTTPAddr != ":8080" {
+		t.Fatalf("HTTPAddr = %q, want %q", cfg.HTTPAddr, ":8080")
+	}
+}
+
+func TestLoadConfigPreservesConfigFileHTTPAddr(t *testing.T) {
+	t.Setenv("HTTP_ADDR", "")
+	t.Setenv("CONFIG_PATH", "")
+	t.Setenv("APP_CONFIG_PATH", "")
+
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(configPath, []byte(`{"http_addr":":8080"}`), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	cfg, err := loadConfig(configPath)
+	if err != nil {
+		t.Fatalf("loadConfig() error = %v", err)
+	}
+
+	if cfg.HTTPAddr != ":8080" {
+		t.Fatalf("HTTPAddr = %q, want %q", cfg.HTTPAddr, ":8080")
 	}
 }

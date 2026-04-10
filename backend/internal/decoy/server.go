@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/natet/honeygen/backend/internal/config"
 )
@@ -34,36 +35,50 @@ func NewHandler(cfg config.Config, logger *slog.Logger) (http.Handler, error) {
 }
 
 func landingHandler(generatedDir string) http.HandlerFunc {
+	return landingHandlerWithDiscover(generatedDir, discoverLandingLinks)
+}
+
+func landingHandlerWithDiscover(generatedDir string, discover func(string, int) []string) http.HandlerFunc {
+	var (
+		once sync.Once
+		page []byte
+	)
+
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
 			http.NotFound(w, r)
 			return
 		}
 
-		links := discoverLandingLinks(generatedDir, 8)
+		once.Do(func() {
+			page = renderLandingPage(discover(generatedDir, 8))
+		})
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-
-		var builder strings.Builder
-		builder.WriteString("<!doctype html><html><head><title>Decoy Web</title></head><body>")
-		builder.WriteString("<h1>Decoy web service</h1>")
-		builder.WriteString("<p>Generated assets are served from <code>/generated/</code>.</p>")
-		if len(links) == 0 {
-			builder.WriteString("<p>No generated files are available yet.</p>")
-		} else {
-			builder.WriteString("<p>Sample generated files:</p><ul>")
-			for _, link := range links {
-				builder.WriteString(`<li><a href="`)
-				builder.WriteString(html.EscapeString(link))
-				builder.WriteString(`">`)
-				builder.WriteString(html.EscapeString(link))
-				builder.WriteString("</a></li>")
-			}
-			builder.WriteString("</ul>")
-		}
-		builder.WriteString("</body></html>")
-
-		_, _ = w.Write([]byte(builder.String()))
+		_, _ = w.Write(page)
 	}
+}
+
+func renderLandingPage(links []string) []byte {
+	var builder strings.Builder
+	builder.WriteString("<!doctype html><html><head><title>Decoy Web</title></head><body>")
+	builder.WriteString("<h1>Decoy web service</h1>")
+	builder.WriteString("<p>Generated assets are served from <code>/generated/</code>.</p>")
+	if len(links) == 0 {
+		builder.WriteString("<p>No generated files are available yet.</p>")
+	} else {
+		builder.WriteString("<p>Sample generated files:</p><ul>")
+		for _, link := range links {
+			builder.WriteString(`<li><a href="`)
+			builder.WriteString(html.EscapeString(link))
+			builder.WriteString(`">`)
+			builder.WriteString(html.EscapeString(link))
+			builder.WriteString("</a></li>")
+		}
+		builder.WriteString("</ul>")
+	}
+	builder.WriteString("</body></html>")
+
+	return []byte(builder.String())
 }
 
 func discoverLandingLinks(root string, limit int) []string {

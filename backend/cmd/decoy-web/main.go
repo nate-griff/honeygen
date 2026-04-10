@@ -17,17 +17,16 @@ import (
 	"github.com/natet/honeygen/backend/internal/logging"
 )
 
+const defaultDecoyHTTPAddr = ":8081"
+
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	cfg, err := config.Load("")
+	cfg, err := loadConfig("")
 	if err != nil {
 		slog.Error("load config", "error", err)
 		os.Exit(1)
-	}
-	if cfg.HTTPAddr == ":8080" {
-		cfg.HTTPAddr = ":8081"
 	}
 
 	logger := logging.NewLogger(cfg)
@@ -36,6 +35,10 @@ func main() {
 		logger.Error("decoy-web exited", "error", err)
 		os.Exit(1)
 	}
+}
+
+func loadConfig(configPath string) (config.Config, error) {
+	return config.LoadWithDefaults(configPath, config.Config{HTTPAddr: defaultDecoyHTTPAddr})
 }
 
 func run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {

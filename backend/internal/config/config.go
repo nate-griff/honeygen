@@ -71,6 +71,12 @@ type fileProviderConfig struct {
 // Load builds runtime configuration from defaults, an optional JSON config file,
 // and environment variables. JSON keeps the MVP simple and is easy to extend later.
 func Load(configPath string) (Config, error) {
+	return LoadWithDefaults(configPath, Config{})
+}
+
+// LoadWithDefaults builds runtime configuration from built-in defaults, service-specific
+// defaults, an optional JSON config file, and environment variables.
+func LoadWithDefaults(configPath string, defaults Config) (Config, error) {
 	cfg := Config{
 		ServiceName:        defaultServiceName,
 		ServiceVersion:     defaultServiceVersion,
@@ -80,6 +86,18 @@ func Load(configPath string) (Config, error) {
 		GeneratedAssetsDir: defaultGeneratedAssetsDir,
 		InternalAPIBaseURL: defaultInternalAPIBaseURL,
 	}
+	applyDefaultString(&cfg.ServiceName, defaults.ServiceName)
+	applyDefaultString(&cfg.ServiceVersion, defaults.ServiceVersion)
+	applyDefaultString(&cfg.AppEnv, defaults.AppEnv)
+	applyDefaultString(&cfg.HTTPAddr, defaults.HTTPAddr)
+	applyDefaultString(&cfg.InternalEventIngestToken, defaults.InternalEventIngestToken)
+	applyDefaultString(&cfg.SQLitePath, defaults.SQLitePath)
+	applyDefaultString(&cfg.GeneratedAssetsDir, defaults.GeneratedAssetsDir)
+	applyDefaultString(&cfg.StorageRoot, defaults.StorageRoot)
+	applyDefaultString(&cfg.InternalAPIBaseURL, defaults.InternalAPIBaseURL)
+	applyDefaultString(&cfg.Provider.BaseURL, defaults.Provider.BaseURL)
+	applyDefaultString(&cfg.Provider.APIKey, defaults.Provider.APIKey)
+	applyDefaultString(&cfg.Provider.Model, defaults.Provider.Model)
 
 	resolvedConfigPath := configPath
 	if resolvedConfigPath == "" {
@@ -139,6 +157,12 @@ func applyFileConfig(cfg *Config, path string) error {
 	}
 
 	return nil
+}
+
+func applyDefaultString(dst *string, value string) {
+	if value != "" {
+		*dst = value
+	}
 }
 
 func applyOptionalString(dst *string, value *string) {

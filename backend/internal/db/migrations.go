@@ -110,6 +110,7 @@ var schemaUpgrades = []struct {
 var schemaIndexes = []string{
 	`CREATE INDEX IF NOT EXISTS idx_generation_jobs_created_at ON generation_jobs(created_at DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_assets_generation_job_id ON assets(generation_job_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_events_world_model_id ON events(world_model_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_events_created_at ON events(created_at DESC)`,
 }

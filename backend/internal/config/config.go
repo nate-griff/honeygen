@@ -15,6 +15,7 @@ const (
 	defaultHTTPAddr           = ":8080"
 	defaultSQLitePath         = "/app/storage/sqlite/honeygen.db"
 	defaultGeneratedAssetsDir = "/app/storage/generated"
+	defaultInternalAPIBaseURL = "http://api:8080"
 )
 
 type Config struct {
@@ -25,6 +26,7 @@ type Config struct {
 	SQLitePath         string         `json:"sqlite_path"`
 	GeneratedAssetsDir string         `json:"generated_assets_dir"`
 	StorageRoot        string         `json:"storage_root"`
+	InternalAPIBaseURL string         `json:"internal_api_base_url"`
 	ConfigFilePath     string         `json:"-"`
 	Provider           ProviderConfig `json:"provider"`
 }
@@ -54,6 +56,7 @@ type fileConfig struct {
 	SQLitePath         *string             `json:"sqlite_path"`
 	GeneratedAssetsDir *string             `json:"generated_assets_dir"`
 	StorageRoot        *string             `json:"storage_root"`
+	InternalAPIBaseURL *string             `json:"internal_api_base_url"`
 	Provider           *fileProviderConfig `json:"provider"`
 }
 
@@ -73,6 +76,7 @@ func Load(configPath string) (Config, error) {
 		HTTPAddr:           defaultHTTPAddr,
 		SQLitePath:         defaultSQLitePath,
 		GeneratedAssetsDir: defaultGeneratedAssetsDir,
+		InternalAPIBaseURL: defaultInternalAPIBaseURL,
 	}
 
 	resolvedConfigPath := configPath
@@ -93,6 +97,7 @@ func Load(configPath string) (Config, error) {
 	applyEnvOverride(&cfg.SQLitePath, "SQLITE_PATH")
 	applyEnvOverride(&cfg.GeneratedAssetsDir, "GENERATED_ASSETS_DIR")
 	applyEnvOverride(&cfg.StorageRoot, "STORAGE_ROOT")
+	applyEnvOverride(&cfg.InternalAPIBaseURL, "INTERNAL_API_BASE_URL")
 	applyEnvOverride(&cfg.Provider.BaseURL, "LLM_BASE_URL")
 	applyEnvOverride(&cfg.Provider.APIKey, "LLM_API_KEY")
 	applyEnvOverride(&cfg.Provider.Model, "LLM_MODEL")
@@ -122,6 +127,7 @@ func applyFileConfig(cfg *Config, path string) error {
 	applyOptionalString(&cfg.SQLitePath, fileCfg.SQLitePath)
 	applyOptionalString(&cfg.GeneratedAssetsDir, fileCfg.GeneratedAssetsDir)
 	applyOptionalString(&cfg.StorageRoot, fileCfg.StorageRoot)
+	applyOptionalString(&cfg.InternalAPIBaseURL, fileCfg.InternalAPIBaseURL)
 	if fileCfg.Provider != nil {
 		applyOptionalString(&cfg.Provider.BaseURL, fileCfg.Provider.BaseURL)
 		applyOptionalString(&cfg.Provider.APIKey, fileCfg.Provider.APIKey)

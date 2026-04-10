@@ -11,6 +11,7 @@ import (
 	"github.com/natet/honeygen/backend/internal/assets"
 	"github.com/natet/honeygen/backend/internal/config"
 	appdb "github.com/natet/honeygen/backend/internal/db"
+	"github.com/natet/honeygen/backend/internal/events"
 	"github.com/natet/honeygen/backend/internal/generation"
 	"github.com/natet/honeygen/backend/internal/models"
 	"github.com/natet/honeygen/backend/internal/provider"
@@ -27,6 +28,8 @@ type APIApp struct {
 	WorldModels   *worldmodels.Service
 	Provider      provider.Provider
 	AssetRepo     *assets.Repository
+	EventRepo     *events.Repository
+	EventService  *events.Service
 	JobStore      *generation.JobStore
 	Planner       *generation.Planner
 	Storage       *storage.Filesystem
@@ -66,6 +69,7 @@ func NewAPIApp(ctx context.Context, cfg config.Config, logger *slog.Logger) (*AP
 	}
 
 	assetRepo := assets.NewRepository(database)
+	eventRepo := events.NewRepository(database)
 	jobStore := generation.NewJobStore(database)
 	filesystem := storage.NewFilesystem(cfg.StorageRoot)
 
@@ -77,6 +81,8 @@ func NewAPIApp(ctx context.Context, cfg config.Config, logger *slog.Logger) (*AP
 		WorldModels:   worldModelService,
 		Provider:      provider.NewOpenAI(cfg.Provider, nil),
 		AssetRepo:     assetRepo,
+		EventRepo:     eventRepo,
+		EventService:  events.NewService(eventRepo, assetRepo),
 		JobStore:      jobStore,
 		Planner:       generation.NewPlanner(),
 		Storage:       filesystem,

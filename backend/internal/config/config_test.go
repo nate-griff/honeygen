@@ -10,6 +10,7 @@ func TestLoadMergesDefaultsConfigFileAndEnvironment(t *testing.T) {
 	t.Setenv("APP_ENV", "production")
 	t.Setenv("HTTP_ADDR", ":9099")
 	t.Setenv("LLM_API_KEY", "env-key")
+	t.Setenv("INTERNAL_API_BASE_URL", "http://api.internal:8080")
 
 	configPath := filepath.Join(t.TempDir(), "config.json")
 	configJSON := `{
@@ -54,6 +55,9 @@ func TestLoadMergesDefaultsConfigFileAndEnvironment(t *testing.T) {
 	if cfg.Provider.BaseURL != "https://provider.example/v1" {
 		t.Fatalf("Provider.BaseURL = %q, want %q", cfg.Provider.BaseURL, "https://provider.example/v1")
 	}
+	if cfg.InternalAPIBaseURL != "http://api.internal:8080" {
+		t.Fatalf("InternalAPIBaseURL = %q, want %q", cfg.InternalAPIBaseURL, "http://api.internal:8080")
+	}
 	if cfg.ConfigFilePath != configPath {
 		t.Fatalf("ConfigFilePath = %q, want %q", cfg.ConfigFilePath, configPath)
 	}
@@ -79,5 +83,8 @@ func TestLoadUsesDefaultsWhenConfigIsNotProvided(t *testing.T) {
 	}
 	if cfg.Provider.Mode() != "unconfigured" {
 		t.Fatalf("Provider.Mode() = %q, want %q", cfg.Provider.Mode(), "unconfigured")
+	}
+	if cfg.InternalAPIBaseURL != "http://api:8080" {
+		t.Fatalf("InternalAPIBaseURL = %q, want %q", cfg.InternalAPIBaseURL, "http://api:8080")
 	}
 }

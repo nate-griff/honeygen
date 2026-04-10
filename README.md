@@ -48,12 +48,20 @@ Mounted named volumes:
   - `POST /api/generation/run` -> synchronously plan and generate assets for a saved world model
   - `GET /api/generation/jobs` -> list persisted generation jobs
   - `GET /api/generation/jobs/:id` -> fetch one generation job with persisted logs/summary
-  - `GET /api/assets` -> list generated assets with simple filters and pagination
-  - `GET /api/assets/tree` -> browse generated assets as a directory tree
-  - `GET /api/assets/:id` -> fetch one asset's metadata
-  - `GET /api/assets/:id/content` -> return inline preview content for safe text/html/markdown/csv assets
+- `GET /api/assets` -> list generated assets with simple filters and pagination
+- `GET /api/assets/tree` -> browse generated assets as a directory tree
+- `GET /api/assets/:id` -> fetch one asset's metadata
+- `GET /api/assets/:id/content` -> return inline preview content for safe text/html/markdown/csv assets
+- `GET /api/events` -> list persisted decoy access events with pagination and filters
+- `GET /api/events/:id` -> fetch one persisted decoy access event
 - First-run API startup seeds the `Northbridge Financial Advisory` demo model.
 - The matching sample payload lives at `sample-data/world-models/northbridge-financial.json`.
+
+## Decoy runtime notes
+
+- The decoy runtime serves generated files from `GET /generated/...`.
+- Every non-health request is posted to the API at `INTERNAL_API_BASE_URL` and stored in SQLite.
+- `GET /` shows a simple landing page with sample generated file links when available.
 
 ## Validation
 

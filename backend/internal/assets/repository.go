@@ -90,6 +90,26 @@ func (r *Repository) Get(ctx context.Context, id string) (Asset, error) {
 	return asset, nil
 }
 
+func (r *Repository) FindByPath(ctx context.Context, path string) (Asset, error) {
+	row := r.db.QueryRowContext(ctx, `
+		SELECT id, generation_job_id, world_model_id, source_type, rendered_type, path,
+		       mime_type, size_bytes, tags_json, previewable, checksum, created_at
+		FROM assets
+		WHERE path = ?
+		LIMIT 1
+	`, path)
+
+	asset, err := scanAsset(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Asset{}, ErrNotFound
+	}
+	if err != nil {
+		return Asset{}, fmt.Errorf("find asset by path %q: %w", path, err)
+	}
+
+	return asset, nil
+}
+
 func (r *Repository) List(ctx context.Context, options ListOptions) ([]Asset, error) {
 	query := `
 		SELECT id, generation_job_id, world_model_id, source_type, rendered_type, path,

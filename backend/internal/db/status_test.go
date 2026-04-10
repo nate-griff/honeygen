@@ -47,6 +47,12 @@ func TestStatusQueriesReadStatusSummary(t *testing.T) {
 	if summary.Counts.RecentEvents != 1 {
 		t.Fatalf("counts.recent_events = %d, want %d", summary.Counts.RecentEvents, 1)
 	}
+	if len(summary.RecentEvents) != 1 {
+		t.Fatalf("len(recent_events) = %d, want %d", len(summary.RecentEvents), 1)
+	}
+	if summary.RecentEvents[0].ID != "event-recent" || summary.RecentEvents[0].EventType != "asset.viewed" || summary.RecentEvents[0].Path != "/generated/a.pdf" {
+		t.Fatalf("recent_events[0] = %+v, want id=event-recent event_type=asset.viewed path=/generated/a.pdf", summary.RecentEvents[0])
+	}
 	if summary.LatestJob == nil {
 		t.Fatal("latest job = nil, want job summary")
 	}

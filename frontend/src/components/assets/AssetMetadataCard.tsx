@@ -47,7 +47,7 @@ export function AssetMetadataCard({ asset }: AssetMetadataCardProps) {
         </div>
       </dl>
       <div className="button-row">
-        <a className="button button--ghost" href={normalizeDownloadPath(asset.path)} rel="noreferrer" target="_blank">
+        <a className="button button--ghost" download href={normalizeDownloadPath(asset.path)}>
           Download asset
         </a>
       </div>

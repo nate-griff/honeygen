@@ -1,12 +1,13 @@
 package models
 
 type StatusResponse struct {
-	Service   ServiceStatus     `json:"service"`
-	Database  DatabaseStatus    `json:"database"`
-	Storage   StorageStatus     `json:"storage"`
-	Provider  ProviderStatus    `json:"provider"`
-	Counts    StatusCounts      `json:"counts"`
-	LatestJob *LatestJobSummary `json:"latest_job,omitempty"`
+	Service      ServiceStatus        `json:"service"`
+	Database     DatabaseStatus       `json:"database"`
+	Storage      StorageStatus        `json:"storage"`
+	Provider     ProviderStatus       `json:"provider"`
+	Counts       StatusCounts         `json:"counts"`
+	RecentEvents []RecentEventSummary `json:"recent_events"`
+	LatestJob    *LatestJobSummary    `json:"latest_job,omitempty"`
 }
 
 type ServiceStatus struct {
@@ -42,4 +43,12 @@ type LatestJobSummary struct {
 	Status       string `json:"status"`
 	CompletedAt  string `json:"completed_at,omitempty"`
 	AssetCount   int    `json:"asset_count"`
+}
+
+type RecentEventSummary struct {
+	ID        string `json:"id"`
+	EventType string `json:"event_type"`
+	Path      string `json:"path"`
+	SourceIP  string `json:"source_ip"`
+	Timestamp string `json:"timestamp"`
 }

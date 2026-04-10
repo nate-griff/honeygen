@@ -1,26 +1,24 @@
 import { Link, useLoaderData } from "react-router-dom";
-import { listEvents } from "../api/events";
 import { getStatus } from "../api/status";
 import { formatCount, formatDateTime } from "../app/format";
 import { EmptyState } from "../components/layout/EmptyState";
 import { PageHeader } from "../components/layout/PageHeader";
 import { Panel } from "../components/layout/Panel";
 import { StatusBadge } from "../components/layout/StatusBadge";
-import type { EventRecord } from "../types/events";
 import type { StatusResponse } from "../types/status";
 
 interface DashboardLoaderData {
   status: StatusResponse;
-  recentEvents: EventRecord[];
 }
 
 export async function dashboardLoader(): Promise<DashboardLoaderData> {
-  const [status, recentEvents] = await Promise.all([getStatus(), listEvents({ limit: 5 })]);
-  return { status, recentEvents };
+  const status = await getStatus();
+  return { status };
 }
 
 export default function DashboardPage() {
-  const { status, recentEvents } = useLoaderData() as DashboardLoaderData;
+  const { status } = useLoaderData() as DashboardLoaderData;
+  const recentEvents = status.recent_events;
 
   return (
     <div className="stack">
@@ -98,7 +96,7 @@ export default function DashboardPage() {
           )}
         </Panel>
 
-        <Panel title="Recent events" subtitle="Fetched from /api/events for operator review">
+        <Panel title="Recent events" subtitle="Included in /api/status for operator review">
           {recentEvents.length === 0 ? (
             <EmptyState title="No recent events" message="Event traffic will appear here once decoy assets are accessed." />
           ) : (

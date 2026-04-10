@@ -139,6 +139,7 @@ func (a *APIApp) Status(ctx context.Context) (models.StatusResponse, error) {
 			BaseURL: a.Config.Provider.BaseURL,
 			Model:   a.Config.Provider.Model,
 		},
+		RecentEvents: []models.RecentEventSummary{},
 	}
 
 	if !response.Database.Ready {
@@ -150,6 +151,7 @@ func (a *APIApp) Status(ctx context.Context) (models.StatusResponse, error) {
 		return response, err
 	}
 	response.Counts = summary.Counts
+	response.RecentEvents = summary.RecentEvents
 	response.LatestJob = summary.LatestJob
 
 	return response, nil

@@ -49,5 +49,6 @@ export function humanizeLabel(value: string): string {
 }
 
 export function normalizeDownloadPath(path: string): string {
-  return `/${path.replace(/^[\\/]+/, "").replace(/\\/g, "/")}`;
+  const normalizedPath = path.replace(/^[\\/]+/, "").replace(/\\/g, "/").replace(/^generated\//, "");
+  return `/downloads/${normalizedPath}`;
 }

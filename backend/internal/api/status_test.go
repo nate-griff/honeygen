@@ -82,6 +82,12 @@ func TestStatusEndpointReturnsServiceReadinessAndCounts(t *testing.T) {
 			Assets       int `json:"assets"`
 			RecentEvents int `json:"recent_events"`
 		} `json:"counts"`
+		RecentEvents []struct {
+			ID        string `json:"id"`
+			EventType string `json:"event_type"`
+			Path      string `json:"path"`
+			SourceIP  string `json:"source_ip"`
+		} `json:"recent_events"`
 		LatestJob struct {
 			ID         string `json:"id"`
 			Status     string `json:"status"`
@@ -109,6 +115,12 @@ func TestStatusEndpointReturnsServiceReadinessAndCounts(t *testing.T) {
 	}
 	if response.Counts.RecentEvents != 1 {
 		t.Fatalf("counts.recent_events = %d, want %d", response.Counts.RecentEvents, 1)
+	}
+	if len(response.RecentEvents) != 1 {
+		t.Fatalf("len(recent_events) = %d, want %d", len(response.RecentEvents), 1)
+	}
+	if response.RecentEvents[0].ID != "event-recent" || response.RecentEvents[0].EventType != "asset.viewed" || response.RecentEvents[0].Path != "/generated/a.pdf" || response.RecentEvents[0].SourceIP != "127.0.0.1" {
+		t.Fatalf("recent_events[0] = %+v, want id=event-recent event_type=asset.viewed path=/generated/a.pdf source_ip=127.0.0.1", response.RecentEvents[0])
 	}
 	if response.LatestJob.ID != "job-1" || response.LatestJob.Status != "completed" || response.LatestJob.AssetCount != 2 {
 		t.Fatalf("latest_job = %+v, want id=job-1 status=completed asset_count=2", response.LatestJob)

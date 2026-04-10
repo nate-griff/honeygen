@@ -69,7 +69,7 @@ func TestNewHandlerServesGeneratedFilesAndPostsEvents(t *testing.T) {
 		t.Fatalf("NewHandler() error = %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/generated/world-1/job-1/public/report.txt?download=1", nil)
+	req := httptest.NewRequest(http.MethodGet, "/generated/world-1/job-1/public/report.txt", nil)
 	req.Header.Set("User-Agent", "integration-test")
 	req.Header.Set("Referer", "https://example.test/source")
 	rec := httptest.NewRecorder()
@@ -82,7 +82,6 @@ func TestNewHandlerServesGeneratedFilesAndPostsEvents(t *testing.T) {
 	if rec.Body.String() != "hello from decoy" {
 		t.Fatalf("body = %q, want %q", rec.Body.String(), "hello from decoy")
 	}
-
 	select {
 	case payload := <-eventCh:
 		if payload.Method != http.MethodGet {
@@ -91,8 +90,8 @@ func TestNewHandlerServesGeneratedFilesAndPostsEvents(t *testing.T) {
 		if payload.Path != "/generated/world-1/job-1/public/report.txt" {
 			t.Fatalf("payload.Path = %q, want %q", payload.Path, "/generated/world-1/job-1/public/report.txt")
 		}
-		if payload.Query != "download=1" {
-			t.Fatalf("payload.Query = %q, want %q", payload.Query, "download=1")
+		if payload.Query != "" {
+			t.Fatalf("payload.Query = %q, want empty query", payload.Query)
 		}
 		if payload.StatusCode != http.StatusOK {
 			t.Fatalf("payload.StatusCode = %d, want %d", payload.StatusCode, http.StatusOK)

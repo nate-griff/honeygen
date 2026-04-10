@@ -10,8 +10,9 @@ import (
 )
 
 type StatusSummary struct {
-	Counts    models.StatusCounts
-	LatestJob *models.LatestJobSummary
+	Counts       models.StatusCounts
+	RecentEvents []models.RecentEventSummary
+	LatestJob    *models.LatestJobSummary
 }
 
 type StatusSummaryReader interface {
@@ -42,12 +43,18 @@ func (q *StatusQueries) ReadStatusSummary(ctx context.Context, since time.Time) 
 		return StatusSummary{}, err
 	}
 
+	recentEvents, err := q.recentEvents(ctx, since, 5)
+	if err != nil {
+		return StatusSummary{}, err
+	}
+
 	return StatusSummary{
 		Counts: models.StatusCounts{
 			Assets:       assetsCount,
 			RecentEvents: recentEventsCount,
 		},
-		LatestJob: latestJob,
+		RecentEvents: recentEvents,
+		LatestJob:    latestJob,
 	}, nil
 }
 
@@ -103,4 +110,49 @@ LIMIT 1
 		return nil, fmt.Errorf("query latest job: %w", err)
 	}
 	return &job, nil
+}
+
+func (q *StatusQueries) recentEvents(ctx context.Context, since time.Time, limit int) ([]models.RecentEventSummary, error) {
+	rows, err := q.db.QueryContext(
+		ctx,
+		`
+SELECT
+	id,
+	event_type,
+	path,
+	source_ip,
+	COALESCE(NULLIF(timestamp, ''), created_at) AS event_time
+FROM events
+WHERE datetime(COALESCE(NULLIF(timestamp, ''), created_at)) >= datetime(?)
+ORDER BY datetime(COALESCE(NULLIF(timestamp, ''), created_at)) DESC, datetime(created_at) DESC
+LIMIT ?
+`,
+		since.UTC().Format(time.RFC3339),
+		limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query recent events: %w", err)
+	}
+	defer rows.Close()
+
+	items := make([]models.RecentEventSummary, 0, limit)
+	for rows.Next() {
+		var (
+			item         models.RecentEventSummary
+			timestampRaw string
+		)
+		if err := rows.Scan(&item.ID, &item.EventType, &item.Path, &item.SourceIP, &timestampRaw); err != nil {
+			return nil, fmt.Errorf("scan recent event: %w", err)
+		}
+		timestamp, err := ParseTimestamp(timestampRaw)
+		if err != nil {
+			return nil, fmt.Errorf("parse recent event timestamp %q: %w", timestampRaw, err)
+		}
+		item.Timestamp = timestamp.UTC().Format(time.RFC3339)
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate recent events: %w", err)
+	}
+	return items, nil
 }

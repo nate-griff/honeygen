@@ -52,7 +52,7 @@ export function AssetPreview({ asset, content }: AssetPreviewProps) {
       <div className="empty-state empty-state--left">
         <strong>Binary asset</strong>
         <p>{content.message || "This asset is download-only."}</p>
-        <a className="button button--ghost" href={normalizeDownloadPath(asset.path)} rel="noreferrer" target="_blank">
+        <a className="button button--ghost" download href={normalizeDownloadPath(asset.path)}>
           Download asset
         </a>
       </div>

@@ -40,7 +40,7 @@ Mounted named volumes:
 - Health endpoints:
   - `GET /healthz` -> plain-text container healthcheck response
   - `GET /api/health` -> JSON service health summary
-  - `GET /api/status` -> JSON dashboard summary with database readiness, provider mode, counts, and latest job info
+  - `GET /api/status` -> JSON dashboard summary with database readiness, provider mode, counts, a small recent-events slice, and latest job info
   - `GET /api/world-models` -> JSON summaries for saved world models
   - `POST /api/world-models` -> create a saved world model
   - `GET /api/world-models/:id` -> fetch a saved world model
@@ -60,7 +60,7 @@ Mounted named volumes:
 
 ## Decoy runtime notes
 
-- The decoy runtime serves generated files from `GET /generated/...`.
+- The decoy runtime serves generated files from `GET /generated/...`; the admin UI exposes download-only asset links from `/downloads/...` so binary assets are served as attachments.
 - Every non-health request is posted to the API at `INTERNAL_API_BASE_URL` and stored in SQLite.
 - The decoy and API must share `INTERNAL_EVENT_INGEST_TOKEN`; the API rejects `/internal/events` requests without the matching header token.
 - `GET /` shows a simple landing page with sample generated file links when available.

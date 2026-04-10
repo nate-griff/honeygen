@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	appdb "github.com/natet/honeygen/backend/internal/db"
 )
 
 var ErrJobNotFound = errors.New("generation job not found")
@@ -218,25 +220,25 @@ func scanJob(scanner jobScanner) (Job, error) {
 	}
 
 	if startedAtRaw.Valid && startedAtRaw.String != "" {
-		parsed, err := time.Parse(time.RFC3339, startedAtRaw.String)
+		parsed, err := appdb.ParseTimestamp(startedAtRaw.String)
 		if err != nil {
 			return Job{}, fmt.Errorf("parse generation job started_at %q: %w", startedAtRaw.String, err)
 		}
 		job.StartedAt = &parsed
 	}
 	if completedRaw.Valid && completedRaw.String != "" {
-		parsed, err := time.Parse(time.RFC3339, completedRaw.String)
+		parsed, err := appdb.ParseTimestamp(completedRaw.String)
 		if err != nil {
 			return Job{}, fmt.Errorf("parse generation job completed_at %q: %w", completedRaw.String, err)
 		}
 		job.CompletedAt = &parsed
 	}
 
-	job.CreatedAt, err = time.Parse(time.RFC3339, createdAtRaw)
+	job.CreatedAt, err = appdb.ParseTimestamp(createdAtRaw)
 	if err != nil {
 		return Job{}, fmt.Errorf("parse generation job created_at %q: %w", createdAtRaw, err)
 	}
-	job.UpdatedAt, err = time.Parse(time.RFC3339, updatedAtRaw)
+	job.UpdatedAt, err = appdb.ParseTimestamp(updatedAtRaw)
 	if err != nil {
 		return Job{}, fmt.Errorf("parse generation job updated_at %q: %w", updatedAtRaw, err)
 	}

@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	appdb "github.com/natet/honeygen/backend/internal/db"
 )
 
 var ErrNotFound = errors.New("asset not found")
@@ -243,7 +245,7 @@ func scanAsset(scanner rowScanner) (Asset, error) {
 		}
 	}
 	item.Previewable = previewable == 1
-	item.CreatedAt, err = time.Parse(time.RFC3339, createdAtRaw)
+	item.CreatedAt, err = appdb.ParseTimestamp(createdAtRaw)
 	if err != nil {
 		return Asset{}, fmt.Errorf("parse asset created_at %q: %w", createdAtRaw, err)
 	}

@@ -6,8 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
+	appdb "github.com/natet/honeygen/backend/internal/db"
 	sqlite "modernc.org/sqlite"
 	sqlite3 "modernc.org/sqlite/lib"
 )
@@ -129,11 +129,11 @@ func scanStoredWorldModel(scanner rowScanner) (StoredWorldModel, error) {
 		return StoredWorldModel{}, err
 	}
 
-	item.CreatedAt, err = time.Parse(time.RFC3339, createdAtRaw)
+	item.CreatedAt, err = appdb.ParseTimestamp(createdAtRaw)
 	if err != nil {
 		return StoredWorldModel{}, fmt.Errorf("parse created_at %q: %w", createdAtRaw, err)
 	}
-	item.UpdatedAt, err = time.Parse(time.RFC3339, updatedAtRaw)
+	item.UpdatedAt, err = appdb.ParseTimestamp(updatedAtRaw)
 	if err != nil {
 		return StoredWorldModel{}, fmt.Errorf("parse updated_at %q: %w", updatedAtRaw, err)
 	}

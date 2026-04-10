@@ -159,6 +159,13 @@ func Migrate(ctx context.Context, database *sql.DB) error {
 		}
 	}
 
+	if err := migrateLegacyAssetsTable(ctx, tx); err != nil {
+		return err
+	}
+	if err := migrateLegacyEventsTable(ctx, tx); err != nil {
+		return err
+	}
+
 	for _, statement := range schemaIndexes {
 		if _, err := tx.ExecContext(ctx, statement); err != nil {
 			return fmt.Errorf("apply index: %w", err)
@@ -171,6 +178,161 @@ func Migrate(ctx context.Context, database *sql.DB) error {
 
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit migration transaction: %w", err)
+	}
+
+	return nil
+}
+
+func migrateLegacyEventsTable(ctx context.Context, tx *sql.Tx) error {
+	legacyJobIDExists, err := columnExists(ctx, tx, "events", "job_id")
+	if err != nil {
+		return fmt.Errorf("inspect events.job_id: %w", err)
+	}
+	if !legacyJobIDExists {
+		return nil
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+CREATE TABLE events_rebuilt (
+	id TEXT PRIMARY KEY,
+	asset_id TEXT,
+	world_model_id TEXT,
+	event_type TEXT NOT NULL,
+	method TEXT NOT NULL DEFAULT '',
+	query TEXT NOT NULL DEFAULT '',
+	path TEXT NOT NULL DEFAULT '',
+	source_ip TEXT NOT NULL DEFAULT '',
+	user_agent TEXT NOT NULL DEFAULT '',
+	referer TEXT NOT NULL DEFAULT '',
+	status_code INTEGER NOT NULL DEFAULT 0,
+	bytes_sent INTEGER NOT NULL DEFAULT 0,
+	timestamp TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+	level TEXT NOT NULL DEFAULT 'info',
+	metadata_json TEXT NOT NULL DEFAULT '{}',
+	created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+	FOREIGN KEY (asset_id) REFERENCES assets(id)
+)`); err != nil {
+		return fmt.Errorf("create rebuilt events table: %w", err)
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+INSERT INTO events_rebuilt (
+	id,
+	asset_id,
+	world_model_id,
+	event_type,
+	method,
+	query,
+	path,
+	source_ip,
+	user_agent,
+	referer,
+	status_code,
+	bytes_sent,
+	timestamp,
+	level,
+	metadata_json,
+	created_at
+)
+SELECT
+	id,
+	asset_id,
+	world_model_id,
+	COALESCE(NULLIF(event_type, ''), type),
+	method,
+	query,
+	COALESCE(NULLIF(path, ''), request_path),
+	COALESCE(NULLIF(source_ip, ''), remote_addr),
+	user_agent,
+	COALESCE(NULLIF(referer, ''), referrer),
+	status_code,
+	bytes_sent,
+	COALESCE(NULLIF(occurred_at, ''), NULLIF(timestamp, ''), created_at),
+	level,
+	metadata_json,
+	created_at
+FROM events
+`); err != nil {
+		return fmt.Errorf("copy legacy events into rebuilt table: %w", err)
+	}
+
+	if _, err := tx.ExecContext(ctx, `DROP TABLE events`); err != nil {
+		return fmt.Errorf("drop legacy events table: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `ALTER TABLE events_rebuilt RENAME TO events`); err != nil {
+		return fmt.Errorf("rename rebuilt events table: %w", err)
+	}
+
+	return nil
+}
+
+func migrateLegacyAssetsTable(ctx context.Context, tx *sql.Tx) error {
+	legacyJobIDExists, err := columnExists(ctx, tx, "assets", "job_id")
+	if err != nil {
+		return fmt.Errorf("inspect assets.job_id: %w", err)
+	}
+	if !legacyJobIDExists {
+		return nil
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+CREATE TABLE assets_rebuilt (
+	id TEXT PRIMARY KEY,
+	generation_job_id TEXT NOT NULL,
+	world_model_id TEXT NOT NULL,
+	source_type TEXT NOT NULL,
+	rendered_type TEXT NOT NULL,
+	path TEXT NOT NULL,
+	mime_type TEXT NOT NULL DEFAULT '',
+	size_bytes INTEGER NOT NULL DEFAULT 0,
+	tags_json TEXT NOT NULL DEFAULT '[]',
+	previewable INTEGER NOT NULL DEFAULT 0,
+	checksum TEXT NOT NULL DEFAULT '',
+	created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+	FOREIGN KEY (generation_job_id) REFERENCES generation_jobs(id),
+	FOREIGN KEY (world_model_id) REFERENCES world_models(id)
+)`); err != nil {
+		return fmt.Errorf("create rebuilt assets table: %w", err)
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+INSERT INTO assets_rebuilt (
+	id,
+	generation_job_id,
+	world_model_id,
+	source_type,
+	rendered_type,
+	path,
+	mime_type,
+	size_bytes,
+	tags_json,
+	previewable,
+	checksum,
+	created_at
+)
+SELECT
+	id,
+	COALESCE(NULLIF(generation_job_id, ''), job_id),
+	world_model_id,
+	COALESCE(NULLIF(source_type, ''), 'generated'),
+	COALESCE(NULLIF(rendered_type, ''), kind),
+	path,
+	mime_type,
+	CASE WHEN size_bytes > 0 THEN size_bytes ELSE byte_size END,
+	tags_json,
+	previewable,
+	checksum,
+	created_at
+FROM assets
+`); err != nil {
+		return fmt.Errorf("copy legacy assets into rebuilt table: %w", err)
+	}
+
+	if _, err := tx.ExecContext(ctx, `DROP TABLE assets`); err != nil {
+		return fmt.Errorf("drop legacy assets table: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `ALTER TABLE assets_rebuilt RENAME TO assets`); err != nil {
+		return fmt.Errorf("rename rebuilt assets table: %w", err)
 	}
 
 	return nil

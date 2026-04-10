@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	appdb "github.com/natet/honeygen/backend/internal/db"
 )
 
 var ErrNotFound = errors.New("event not found")
@@ -194,11 +196,11 @@ func scanEvent(scanner eventRowScanner) (Event, error) {
 			return Event{}, fmt.Errorf("decode event metadata for %q: %w", item.ID, err)
 		}
 	}
-	item.Timestamp, err = time.Parse(time.RFC3339, timestampRaw)
+	item.Timestamp, err = appdb.ParseTimestamp(timestampRaw)
 	if err != nil {
 		return Event{}, fmt.Errorf("parse event timestamp %q: %w", timestampRaw, err)
 	}
-	item.CreatedAt, err = time.Parse(time.RFC3339, createdAtRaw)
+	item.CreatedAt, err = appdb.ParseTimestamp(createdAtRaw)
 	if err != nil {
 		return Event{}, fmt.Errorf("parse event created_at %q: %w", createdAtRaw, err)
 	}

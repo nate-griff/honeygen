@@ -113,7 +113,36 @@ func TestPlannerRejectsWorldModelsWithoutCoverageInputs(t *testing.T) {
 	if err == nil {
 		t.Fatal("Plan() error = nil, want validation error")
 	}
-	if got, want := err.Error(), "world model must include at least one department, employee, project, and document theme"; got != want {
+	if got, want := err.Error(), "world model must include at least one department, employee, and project"; got != want {
 		t.Fatalf("Plan() error = %q, want %q", got, want)
+	}
+}
+
+func TestPlannerAllowsWorldModelsWithoutDocumentThemes(t *testing.T) {
+	t.Parallel()
+
+	planner := NewPlanner()
+	model := worldmodels.WorldModel{
+		Organization: worldmodels.Organization{
+			Name:        "Northbridge Financial Advisory",
+			Industry:    "Financial Services",
+			Size:        "mid-size",
+			Region:      "United States",
+			DomainTheme: "northbridgefinancial.local",
+		},
+		Branding:    worldmodels.Branding{Tone: "formal"},
+		Departments: []string{"Finance"},
+		Employees: []worldmodels.Employee{
+			{Name: "Lauren Chen", Role: "Managing Director", Department: "Finance"},
+		},
+		Projects: []string{"Quarterly Portfolio Review"},
+	}
+
+	manifest, err := planner.Plan("world-1", model)
+	if err != nil {
+		t.Fatalf("Plan() error = %v, want nil", err)
+	}
+	if len(manifest) == 0 {
+		t.Fatal("Plan() returned no manifest entries")
 	}
 }

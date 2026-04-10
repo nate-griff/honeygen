@@ -1,0 +1,164 @@
+package db
+
+import (
+	"context"
+	"database/sql"
+	"testing"
+)
+
+func TestMigrateCreatesCoreTables(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	defer db.Close()
+
+	if err := Migrate(context.Background(), db); err != nil {
+		t.Fatalf("Migrate() error = %v", err)
+	}
+
+	for _, table := range []string{"world_models", "generation_jobs", "assets", "events", "settings"} {
+		var name string
+		err := db.QueryRowContext(
+			context.Background(),
+			`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`,
+			table,
+		).Scan(&name)
+		if err != nil {
+			t.Fatalf("expected table %q to exist, query error = %v", table, err)
+		}
+		if name != table {
+			t.Fatalf("table name = %q, want %q", name, table)
+		}
+	}
+}
+
+func TestMigrateCreatesSpecColumns(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	defer db.Close()
+
+	if err := Migrate(context.Background(), db); err != nil {
+		t.Fatalf("Migrate() error = %v", err)
+	}
+
+	assertColumnExists(t, db, "world_models", "json_blob")
+	assertColumnExists(t, db, "generation_jobs", "started_at")
+	assertColumnExists(t, db, "generation_jobs", "summary_json")
+	assertColumnExists(t, db, "assets", "generation_job_id")
+	assertColumnExists(t, db, "assets", "rendered_type")
+	assertColumnExists(t, db, "assets", "size_bytes")
+	assertColumnExists(t, db, "assets", "tags_json")
+	assertColumnExists(t, db, "assets", "previewable")
+	assertColumnExists(t, db, "assets", "checksum")
+	assertColumnExists(t, db, "events", "event_type")
+	assertColumnExists(t, db, "events", "method")
+	assertColumnExists(t, db, "events", "query")
+	assertColumnExists(t, db, "events", "path")
+	assertColumnExists(t, db, "events", "source_ip")
+	assertColumnExists(t, db, "events", "referer")
+	assertColumnExists(t, db, "events", "status_code")
+	assertColumnExists(t, db, "events", "bytes_sent")
+	assertColumnExists(t, db, "events", "timestamp")
+}
+
+func TestMigrateUpgradesLegacySchema(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	defer db.Close()
+
+	legacySchema := `
+CREATE TABLE world_models (
+	id TEXT PRIMARY KEY,
+	name TEXT NOT NULL,
+	description TEXT NOT NULL DEFAULT '',
+	prompt TEXT NOT NULL DEFAULT '',
+	created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE generation_jobs (
+	id TEXT PRIMARY KEY,
+	world_model_id TEXT NOT NULL,
+	status TEXT NOT NULL,
+	provider_job_id TEXT NOT NULL DEFAULT '',
+	prompt TEXT NOT NULL DEFAULT '',
+	error_message TEXT NOT NULL DEFAULT '',
+	created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	completed_at TEXT
+);
+CREATE TABLE assets (
+	id TEXT PRIMARY KEY,
+	job_id TEXT NOT NULL,
+	world_model_id TEXT NOT NULL,
+	kind TEXT NOT NULL,
+	path TEXT NOT NULL,
+	mime_type TEXT NOT NULL DEFAULT '',
+	byte_size INTEGER NOT NULL DEFAULT 0,
+	created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE events (
+	id TEXT PRIMARY KEY,
+	job_id TEXT NOT NULL,
+	asset_id TEXT,
+	level TEXT NOT NULL DEFAULT 'info',
+	type TEXT NOT NULL,
+	message TEXT NOT NULL,
+	metadata_json TEXT NOT NULL DEFAULT '{}',
+	created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE settings (
+	key TEXT PRIMARY KEY,
+	value_json TEXT NOT NULL,
+	updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);`
+	if _, err := db.ExecContext(context.Background(), legacySchema); err != nil {
+		t.Fatalf("create legacy schema error = %v", err)
+	}
+
+	if err := Migrate(context.Background(), db); err != nil {
+		t.Fatalf("Migrate() error = %v", err)
+	}
+
+	assertColumnExists(t, db, "world_models", "json_blob")
+	assertColumnExists(t, db, "generation_jobs", "started_at")
+	assertColumnExists(t, db, "assets", "generation_job_id")
+	assertColumnExists(t, db, "events", "timestamp")
+}
+
+func assertColumnExists(t *testing.T, db *sql.DB, table, column string) {
+	t.Helper()
+
+	rows, err := db.QueryContext(context.Background(), `PRAGMA table_info(`+table+`)`)
+	if err != nil {
+		t.Fatalf("PRAGMA table_info(%s) error = %v", table, err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			cid        int
+			name       string
+			dataType   string
+			notNull    int
+			defaultV   sql.NullString
+			primaryKey int
+		)
+		if err := rows.Scan(&cid, &name, &dataType, &notNull, &defaultV, &primaryKey); err != nil {
+			t.Fatalf("rows.Scan() error = %v", err)
+		}
+		if name == column {
+			return
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		t.Fatalf("rows.Err() error = %v", err)
+	}
+
+	t.Fatalf("expected column %q in table %q", column, table)
+}

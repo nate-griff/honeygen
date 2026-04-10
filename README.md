@@ -33,9 +33,20 @@ Mounted named volumes:
 - `sqlite-data` -> SQLite database files
 - `generated-assets` -> generated PDFs and other exported assets
 
+## API runtime notes
+
+- The API reads defaults, then an optional JSON config file from `CONFIG_PATH`, then environment variable overrides.
+- Docker Compose mounts `backend/config/` to `/app/config`; place `backend/config/config.json` there to use the default `CONFIG_PATH`.
+- Health endpoints:
+  - `GET /healthz` -> plain-text container healthcheck response
+  - `GET /api/health` -> JSON service health summary
+  - `GET /api/status` -> JSON dashboard summary with database readiness, provider mode, counts, and latest job info
+
 ## Validation
 
 ```powershell
 docker compose config
 docker compose build
+Set-Location backend
+go test ./...
 ```

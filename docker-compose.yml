@@ -5,15 +5,22 @@ services:
       dockerfile: Dockerfile
       target: api
     environment:
+      APP_VERSION: ${APP_VERSION:-dev}
       APP_ENV: ${APP_ENV:-development}
       HTTP_ADDR: ${API_HTTP_ADDR:-:8080}
+      CONFIG_PATH: ${CONFIG_PATH:-/app/config/config.json}
       SQLITE_PATH: ${SQLITE_PATH:-/app/storage/sqlite/honeygen.db}
+      STORAGE_ROOT: ${STORAGE_ROOT:-/app/storage}
       GENERATED_ASSETS_DIR: ${GENERATED_ASSETS_DIR:-/app/storage/generated}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-}
     ports:
       - "${API_PORT:-8080}:8080"
     volumes:
       - sqlite-data:/app/storage/sqlite
       - generated-assets:/app/storage/generated
+      - ./backend/config:/app/config:ro
     healthcheck:
       test:
         [

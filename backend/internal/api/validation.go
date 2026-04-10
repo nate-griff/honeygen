@@ -2,7 +2,6 @@ package api
 
 import (
 	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -44,13 +43,11 @@ func worldModelIDFromPath(path string) (string, error) {
 	}
 
 	id := strings.TrimSpace(strings.TrimPrefix(path, prefix))
-	if id == "" || strings.Contains(id, "/") {
+	if id == "" {
 		return "", requestValidationError{message: "world model id is required"}
 	}
+	if strings.Contains(id, "/") {
+		return "", requestValidationError{message: "world model id must not contain slashes"}
+	}
 	return id, nil
-}
-
-func isRequestValidationError(err error) bool {
-	var requestErr requestValidationError
-	return errors.As(err, &requestErr)
 }

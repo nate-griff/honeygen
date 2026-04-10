@@ -141,8 +141,6 @@ func writeWorldModelError(application *app.APIApp, w http.ResponseWriter, action
 	switch {
 	case errors.As(err, &validationErr):
 		writeError(w, http.StatusBadRequest, "validation_error", validationErr.Message)
-	case isRequestValidationError(err):
-		writeValidationFailure(w, err)
 	case errors.Is(err, worldmodels.ErrAlreadyExists):
 		writeError(w, http.StatusConflict, "already_exists", "world model already exists")
 	case errors.Is(err, worldmodels.ErrNotFound):

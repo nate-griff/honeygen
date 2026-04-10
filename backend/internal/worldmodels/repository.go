@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	sqlite "modernc.org/sqlite"
+	sqlite3 "modernc.org/sqlite/lib"
 )
 
 type Repository interface {
@@ -73,7 +76,7 @@ func (r *SQLiteRepository) Create(ctx context.Context, item StoredWorldModel) (S
 		INSERT INTO world_models (id, name, description, json_blob)
 		VALUES (?, ?, ?, ?)
 	`, item.ID, item.Name, item.Description, item.JSONBlob); err != nil {
-		if strings.Contains(strings.ToLower(err.Error()), "constraint failed") {
+		if isDuplicateWorldModelIDError(err) {
 			return StoredWorldModel{}, ErrAlreadyExists
 		}
 		return StoredWorldModel{}, fmt.Errorf("create world model %q: %w", item.ID, err)
@@ -136,4 +139,18 @@ func scanStoredWorldModel(scanner rowScanner) (StoredWorldModel, error) {
 	}
 
 	return item, nil
+}
+
+func isDuplicateWorldModelIDError(err error) bool {
+	var sqliteErr *sqlite.Error
+	if !errors.As(err, &sqliteErr) {
+		return false
+	}
+
+	switch sqliteErr.Code() {
+	case sqlite3.SQLITE_CONSTRAINT_PRIMARYKEY, sqlite3.SQLITE_CONSTRAINT_UNIQUE:
+		return strings.Contains(strings.ToLower(sqliteErr.Error()), "world_models.id")
+	default:
+		return false
+	}
 }

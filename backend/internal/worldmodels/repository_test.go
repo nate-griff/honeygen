@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 	"testing"
 
 	appdb "github.com/natet/honeygen/backend/internal/db"
@@ -75,6 +76,48 @@ func TestSQLiteRepositoryGetReturnsNotFound(t *testing.T) {
 	}
 }
 
+func TestSQLiteRepositoryCreateReturnsAlreadyExistsForDuplicateID(t *testing.T) {
+	database := newTestDatabase(t)
+	repository := NewRepository(database)
+
+	item := StoredWorldModel{
+		ID:          "world-1",
+		Name:        "Acme Advisory",
+		Description: "Initial description",
+		JSONBlob:    `{"organization":{"name":"Acme Advisory","industry":"Financial Services","size":"mid-size","region":"United States","domain_theme":"acmeadvisory.local"},"branding":{"tone":"professional"},"departments":[],"employees":[],"projects":[],"document_themes":[]}`,
+	}
+
+	if _, err := repository.Create(context.Background(), item); err != nil {
+		t.Fatalf("Create() first insert error = %v", err)
+	}
+
+	_, err := repository.Create(context.Background(), item)
+	if !errors.Is(err, ErrAlreadyExists) {
+		t.Fatalf("Create() duplicate error = %v, want %v", err, ErrAlreadyExists)
+	}
+}
+
+func TestSQLiteRepositoryCreateDoesNotMapNonUniqueConstraintToAlreadyExists(t *testing.T) {
+	database := newConstrainedTestDatabase(t)
+	repository := NewRepository(database)
+
+	_, err := repository.Create(context.Background(), StoredWorldModel{
+		ID:          "world-1",
+		Name:        "",
+		Description: "Initial description",
+		JSONBlob:    `{}`,
+	})
+	if err == nil {
+		t.Fatal("Create() error = nil, want constraint error")
+	}
+	if errors.Is(err, ErrAlreadyExists) {
+		t.Fatalf("Create() error = %v, must not map CHECK constraint to %v", err, ErrAlreadyExists)
+	}
+	if !strings.Contains(err.Error(), "create world model") {
+		t.Fatalf("Create() error = %v, want wrapped repository error", err)
+	}
+}
+
 func newTestDatabase(t *testing.T) *sql.DB {
 	t.Helper()
 
@@ -88,6 +131,34 @@ func newTestDatabase(t *testing.T) *sql.DB {
 
 	if err := appdb.Migrate(context.Background(), database); err != nil {
 		t.Fatalf("Migrate() error = %v", err)
+	}
+
+	return database
+}
+
+func newConstrainedTestDatabase(t *testing.T) *sql.DB {
+	t.Helper()
+
+	database, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	t.Cleanup(func() {
+		_ = database.Close()
+	})
+
+	_, err = database.ExecContext(context.Background(), `
+		CREATE TABLE world_models (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL CHECK(length(name) > 0),
+			description TEXT NOT NULL DEFAULT '',
+			json_blob TEXT NOT NULL DEFAULT '{}',
+			created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+			updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+		)
+	`)
+	if err != nil {
+		t.Fatalf("ExecContext() error = %v", err)
 	}
 
 	return database

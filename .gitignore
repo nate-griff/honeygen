@@ -1,1 +1,25 @@
+# OS and editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Git worktrees
 .worktrees/
+
+# Node / Vite
+frontend/node_modules/
+frontend/dist/
+
+# Go
+backend/bin/
+backend/.cache/
+
+# Build outputs
+coverage/
+*.log

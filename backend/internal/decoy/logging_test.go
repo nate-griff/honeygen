@@ -26,9 +26,13 @@ func TestNewHandlerServesGeneratedFilesAndPostsEvents(t *testing.T) {
 	}
 
 	eventCh := make(chan events.IngestRequest, 1)
+	const internalToken = "decoy-shared-secret"
 	ingestServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/internal/events" {
 			t.Fatalf("ingest path = %q, want %q", r.URL.Path, "/internal/events")
+		}
+		if got := r.Header.Get(events.InternalIngestTokenHeader); got != internalToken {
+			t.Fatalf("ingest token = %q, want %q", got, internalToken)
 		}
 		defer r.Body.Close()
 
@@ -44,8 +48,9 @@ func TestNewHandlerServesGeneratedFilesAndPostsEvents(t *testing.T) {
 	defer ingestServer.Close()
 
 	handler, err := NewHandler(config.Config{
-		GeneratedAssetsDir: generatedDir,
-		InternalAPIBaseURL: ingestServer.URL,
+		GeneratedAssetsDir:       generatedDir,
+		InternalAPIBaseURL:       ingestServer.URL,
+		InternalEventIngestToken: internalToken,
 	}, slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatalf("NewHandler() error = %v", err)

@@ -11,6 +11,7 @@ func TestLoadMergesDefaultsConfigFileAndEnvironment(t *testing.T) {
 	t.Setenv("HTTP_ADDR", ":9099")
 	t.Setenv("LLM_API_KEY", "env-key")
 	t.Setenv("INTERNAL_API_BASE_URL", "http://api.internal:8080")
+	t.Setenv("INTERNAL_EVENT_INGEST_TOKEN", "env-internal-token")
 
 	configPath := filepath.Join(t.TempDir(), "config.json")
 	configJSON := `{
@@ -58,6 +59,9 @@ func TestLoadMergesDefaultsConfigFileAndEnvironment(t *testing.T) {
 	if cfg.InternalAPIBaseURL != "http://api.internal:8080" {
 		t.Fatalf("InternalAPIBaseURL = %q, want %q", cfg.InternalAPIBaseURL, "http://api.internal:8080")
 	}
+	if cfg.InternalEventIngestToken != "env-internal-token" {
+		t.Fatalf("InternalEventIngestToken = %q, want %q", cfg.InternalEventIngestToken, "env-internal-token")
+	}
 	if cfg.ConfigFilePath != configPath {
 		t.Fatalf("ConfigFilePath = %q, want %q", cfg.ConfigFilePath, configPath)
 	}
@@ -86,5 +90,8 @@ func TestLoadUsesDefaultsWhenConfigIsNotProvided(t *testing.T) {
 	}
 	if cfg.InternalAPIBaseURL != "http://api:8080" {
 		t.Fatalf("InternalAPIBaseURL = %q, want %q", cfg.InternalAPIBaseURL, "http://api:8080")
+	}
+	if cfg.InternalEventIngestToken != "" {
+		t.Fatalf("InternalEventIngestToken = %q, want empty string", cfg.InternalEventIngestToken)
 	}
 }

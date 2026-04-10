@@ -10,6 +10,7 @@ import (
 
 	"github.com/natet/honeygen/backend/internal/assets"
 	"github.com/natet/honeygen/backend/internal/events"
+	"github.com/natet/honeygen/backend/internal/models"
 )
 
 func TestInternalEventIngestionIsVisibleThroughPublicEventsAPI(t *testing.T) {
@@ -45,6 +46,7 @@ func TestInternalEventIngestionIsVisibleThroughPublicEventsAPI(t *testing.T) {
 
 	createReq := httptest.NewRequest(http.MethodPost, "/internal/events", body)
 	createReq.Header.Set("Content-Type", "application/json")
+	createReq.Header.Set(events.InternalIngestTokenHeader, application.Config.InternalEventIngestToken)
 	createRec := httptest.NewRecorder()
 
 	NewRouter(application).ServeHTTP(createRec, createReq)
@@ -107,5 +109,56 @@ func TestInternalEventIngestionIsVisibleThroughPublicEventsAPI(t *testing.T) {
 	}
 	if got.BytesSent != 512 {
 		t.Fatalf("detail.BytesSent = %d, want %d", got.BytesSent, 512)
+	}
+}
+
+func TestInternalEventIngestionRejectsUnauthorizedRequests(t *testing.T) {
+	application := newTestAPIApp(t)
+
+	testCases := []struct {
+		name        string
+		token       string
+		wantStatus  int
+		wantMessage string
+	}{
+		{
+			name:        "missing token",
+			wantStatus:  http.StatusUnauthorized,
+			wantMessage: "internal event token is invalid",
+		},
+		{
+			name:        "invalid token",
+			token:       "wrong-token",
+			wantStatus:  http.StatusUnauthorized,
+			wantMessage: "internal event token is invalid",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/internal/events", bytes.NewBufferString(`{
+				"timestamp":"2024-06-01T12:00:00Z",
+				"method":"GET",
+				"path":"/generated/world-1/job-1/public/report.html",
+				"source_ip":"203.0.113.10",
+				"user_agent":"integration-test",
+				"status_code":200,
+				"bytes_sent":512
+			}`))
+			req.Header.Set("Content-Type", "application/json")
+			if tc.token != "" {
+				req.Header.Set(events.InternalIngestTokenHeader, tc.token)
+			}
+
+			rec := httptest.NewRecorder()
+			NewRouter(application).ServeHTTP(rec, req)
+
+			assertAPIErrorResponse(t, rec, tc.wantStatus, "", models.APIErrorResponse{
+				Error: models.APIError{
+					Code:    "unauthorized",
+					Message: tc.wantMessage,
+				},
+			})
+		})
 	}
 }

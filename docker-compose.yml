@@ -13,6 +13,7 @@ services:
       SQLITE_PATH: ${SQLITE_PATH:-/app/storage/sqlite/honeygen.db}
       STORAGE_ROOT: ${STORAGE_ROOT:-/app/storage}
       GENERATED_ASSETS_DIR: ${GENERATED_ASSETS_DIR:-/app/storage/generated}
+      INTERNAL_EVENT_INGEST_TOKEN: ${INTERNAL_EVENT_INGEST_TOKEN:-change-me-in-dev}
       LLM_BASE_URL: ${LLM_BASE_URL:-}
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_MODEL: ${LLM_MODEL:-}
@@ -62,6 +63,7 @@ services:
       HTTP_ADDR: ${DECOY_WEB_HTTP_ADDR:-:8081}
       GENERATED_ASSETS_DIR: ${GENERATED_ASSETS_DIR:-/app/storage/generated}
       INTERNAL_API_BASE_URL: ${INTERNAL_API_BASE_URL:-http://api:8080}
+      INTERNAL_EVENT_INGEST_TOKEN: ${INTERNAL_EVENT_INGEST_TOKEN:-change-me-in-dev}
     ports:
       - "${DECOY_WEB_PORT:-8081}:8081"
     volumes:

@@ -51,13 +51,14 @@ func newTestAPIApp(t *testing.T) *app.APIApp {
 	t.Helper()
 
 	cfg := config.Config{
-		ServiceName:        "honeygen-api",
-		ServiceVersion:     "test",
-		AppEnv:             "test",
-		HTTPAddr:           ":0",
-		SQLitePath:         filepath.Join(t.TempDir(), "api.db"),
-		GeneratedAssetsDir: filepath.Join(t.TempDir(), "generated"),
-		StorageRoot:        filepath.Join(t.TempDir(), "storage"),
+		ServiceName:              "honeygen-api",
+		ServiceVersion:           "test",
+		AppEnv:                   "test",
+		HTTPAddr:                 ":0",
+		InternalEventIngestToken: "test-internal-event-token",
+		SQLitePath:               filepath.Join(t.TempDir(), "api.db"),
+		GeneratedAssetsDir:       filepath.Join(t.TempDir(), "generated"),
+		StorageRoot:              filepath.Join(t.TempDir(), "storage"),
 	}
 
 	application, err := app.NewAPIApp(context.Background(), cfg, slog.New(slog.NewJSONHandler(io.Discard, nil)))

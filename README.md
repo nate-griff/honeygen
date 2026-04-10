@@ -54,6 +54,7 @@ Mounted named volumes:
 - `GET /api/assets/:id/content` -> return inline preview content for safe text/html/markdown/csv assets
 - `GET /api/events` -> list persisted decoy access events with pagination and filters
 - `GET /api/events/:id` -> fetch one persisted decoy access event
+- `POST /internal/events` -> internal-only decoy ingestion endpoint guarded by `X-Honeygen-Internal-Event-Token`
 - First-run API startup seeds the `Northbridge Financial Advisory` demo model.
 - The matching sample payload lives at `sample-data/world-models/northbridge-financial.json`.
 
@@ -61,6 +62,7 @@ Mounted named volumes:
 
 - The decoy runtime serves generated files from `GET /generated/...`.
 - Every non-health request is posted to the API at `INTERNAL_API_BASE_URL` and stored in SQLite.
+- The decoy and API must share `INTERNAL_EVENT_INGEST_TOKEN`; the API rejects `/internal/events` requests without the matching header token.
 - `GET /` shows a simple landing page with sample generated file links when available.
 
 ## Validation

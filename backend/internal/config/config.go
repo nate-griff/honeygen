@@ -19,16 +19,17 @@ const (
 )
 
 type Config struct {
-	ServiceName        string         `json:"service_name"`
-	ServiceVersion     string         `json:"service_version"`
-	AppEnv             string         `json:"app_env"`
-	HTTPAddr           string         `json:"http_addr"`
-	SQLitePath         string         `json:"sqlite_path"`
-	GeneratedAssetsDir string         `json:"generated_assets_dir"`
-	StorageRoot        string         `json:"storage_root"`
-	InternalAPIBaseURL string         `json:"internal_api_base_url"`
-	ConfigFilePath     string         `json:"-"`
-	Provider           ProviderConfig `json:"provider"`
+	ServiceName              string         `json:"service_name"`
+	ServiceVersion           string         `json:"service_version"`
+	AppEnv                   string         `json:"app_env"`
+	HTTPAddr                 string         `json:"http_addr"`
+	InternalEventIngestToken string         `json:"internal_event_ingest_token"`
+	SQLitePath               string         `json:"sqlite_path"`
+	GeneratedAssetsDir       string         `json:"generated_assets_dir"`
+	StorageRoot              string         `json:"storage_root"`
+	InternalAPIBaseURL       string         `json:"internal_api_base_url"`
+	ConfigFilePath           string         `json:"-"`
+	Provider                 ProviderConfig `json:"provider"`
 }
 
 type ProviderConfig struct {
@@ -49,15 +50,16 @@ func (p ProviderConfig) Mode() string {
 }
 
 type fileConfig struct {
-	ServiceName        *string             `json:"service_name"`
-	ServiceVersion     *string             `json:"service_version"`
-	AppEnv             *string             `json:"app_env"`
-	HTTPAddr           *string             `json:"http_addr"`
-	SQLitePath         *string             `json:"sqlite_path"`
-	GeneratedAssetsDir *string             `json:"generated_assets_dir"`
-	StorageRoot        *string             `json:"storage_root"`
-	InternalAPIBaseURL *string             `json:"internal_api_base_url"`
-	Provider           *fileProviderConfig `json:"provider"`
+	ServiceName              *string             `json:"service_name"`
+	ServiceVersion           *string             `json:"service_version"`
+	AppEnv                   *string             `json:"app_env"`
+	HTTPAddr                 *string             `json:"http_addr"`
+	InternalEventIngestToken *string             `json:"internal_event_ingest_token"`
+	SQLitePath               *string             `json:"sqlite_path"`
+	GeneratedAssetsDir       *string             `json:"generated_assets_dir"`
+	StorageRoot              *string             `json:"storage_root"`
+	InternalAPIBaseURL       *string             `json:"internal_api_base_url"`
+	Provider                 *fileProviderConfig `json:"provider"`
 }
 
 type fileProviderConfig struct {
@@ -94,6 +96,7 @@ func Load(configPath string) (Config, error) {
 	applyEnvOverride(&cfg.ServiceVersion, "APP_VERSION")
 	applyEnvOverride(&cfg.AppEnv, "APP_ENV")
 	applyEnvOverride(&cfg.HTTPAddr, "HTTP_ADDR")
+	applyEnvOverride(&cfg.InternalEventIngestToken, "INTERNAL_EVENT_INGEST_TOKEN")
 	applyEnvOverride(&cfg.SQLitePath, "SQLITE_PATH")
 	applyEnvOverride(&cfg.GeneratedAssetsDir, "GENERATED_ASSETS_DIR")
 	applyEnvOverride(&cfg.StorageRoot, "STORAGE_ROOT")
@@ -124,6 +127,7 @@ func applyFileConfig(cfg *Config, path string) error {
 	applyOptionalString(&cfg.ServiceVersion, fileCfg.ServiceVersion)
 	applyOptionalString(&cfg.AppEnv, fileCfg.AppEnv)
 	applyOptionalString(&cfg.HTTPAddr, fileCfg.HTTPAddr)
+	applyOptionalString(&cfg.InternalEventIngestToken, fileCfg.InternalEventIngestToken)
 	applyOptionalString(&cfg.SQLitePath, fileCfg.SQLitePath)
 	applyOptionalString(&cfg.GeneratedAssetsDir, fileCfg.GeneratedAssetsDir)
 	applyOptionalString(&cfg.StorageRoot, fileCfg.StorageRoot)

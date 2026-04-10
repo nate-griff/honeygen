@@ -2,8 +2,10 @@ package api
 
 import (
 	"context"
+	"crypto/subtle"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/natet/honeygen/backend/internal/app"
@@ -12,6 +14,18 @@ import (
 
 func internalEventsHandler(application *app.APIApp) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		configuredToken := strings.TrimSpace(application.Config.InternalEventIngestToken)
+		if configuredToken == "" {
+			application.Logger.Error("internal event ingestion token is not configured")
+			writeError(w, http.StatusServiceUnavailable, "events_unavailable", "events are temporarily unavailable")
+			return
+		}
+		providedToken := strings.TrimSpace(r.Header.Get(events.InternalIngestTokenHeader))
+		if subtle.ConstantTimeCompare([]byte(providedToken), []byte(configuredToken)) != 1 {
+			writeError(w, http.StatusUnauthorized, "unauthorized", "internal event token is invalid")
+			return
+		}
+
 		payload, err := decodeIngestRequest(w, r)
 		if err != nil {
 			var validationErr requestValidationError

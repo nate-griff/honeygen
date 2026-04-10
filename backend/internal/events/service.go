@@ -11,6 +11,8 @@ import (
 	"github.com/natet/honeygen/backend/internal/assets"
 )
 
+const InternalIngestTokenHeader = "X-Honeygen-Internal-Event-Token"
+
 type IngestRequest struct {
 	Timestamp  time.Time      `json:"timestamp"`
 	Method     string         `json:"method"`

@@ -30,7 +30,7 @@ func NewHandler(cfg config.Config, logger *slog.Logger) (http.Handler, error) {
 	mux.Handle("/generated/", http.StripPrefix("/generated/", http.FileServer(http.Dir(cfg.GeneratedAssetsDir))))
 	mux.HandleFunc("/", landingHandler(cfg.GeneratedAssetsDir))
 
-	return LoggingMiddleware(mux, newHTTPEventRecorder(cfg.InternalAPIBaseURL, nil), logger), nil
+	return LoggingMiddleware(mux, newHTTPEventRecorder(cfg.InternalAPIBaseURL, cfg.InternalEventIngestToken, nil), logger), nil
 }
 
 func landingHandler(generatedDir string) http.HandlerFunc {

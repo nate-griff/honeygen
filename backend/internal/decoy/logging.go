@@ -21,15 +21,17 @@ type eventRecorder interface {
 
 type httpEventRecorder struct {
 	baseURL string
+	token   string
 	client  *http.Client
 }
 
-func newHTTPEventRecorder(baseURL string, client *http.Client) eventRecorder {
+func newHTTPEventRecorder(baseURL, token string, client *http.Client) eventRecorder {
 	if client == nil {
 		client = &http.Client{Timeout: 3 * time.Second}
 	}
 	return &httpEventRecorder{
 		baseURL: strings.TrimRight(strings.TrimSpace(baseURL), "/"),
+		token:   strings.TrimSpace(token),
 		client:  client,
 	}
 }
@@ -49,6 +51,7 @@ func (r *httpEventRecorder) Record(ctx context.Context, payload events.IngestReq
 		return fmt.Errorf("create ingestion request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json; charset=utf-8")
+	req.Header.Set(events.InternalIngestTokenHeader, r.token)
 
 	resp, err := r.client.Do(req)
 	if err != nil {

@@ -12,6 +12,7 @@ func NewRouter(application *app.APIApp) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", healthzHandler)
 	mux.HandleFunc("/api/health", allowMethod(http.MethodGet, healthHandler(application)))
+	mux.HandleFunc("/api/provider/test", allowMethod(http.MethodPost, providerTestHandler(application)))
 	mux.HandleFunc("/api/status", allowMethod(http.MethodGet, statusHandler(application)))
 	mux.HandleFunc("/api/world-models", worldModelsCollectionHandler(application))
 	mux.HandleFunc("/api/world-models/", worldModelItemHandler(application))

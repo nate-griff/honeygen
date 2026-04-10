@@ -11,6 +11,7 @@ import (
 	"github.com/natet/honeygen/backend/internal/config"
 	appdb "github.com/natet/honeygen/backend/internal/db"
 	"github.com/natet/honeygen/backend/internal/models"
+	"github.com/natet/honeygen/backend/internal/provider"
 	"github.com/natet/honeygen/backend/internal/worldmodels"
 )
 
@@ -20,6 +21,7 @@ type APIApp struct {
 	DB            *sql.DB
 	StatusQueries appdb.StatusSummaryReader
 	WorldModels   *worldmodels.Service
+	Provider      provider.Provider
 }
 
 func NewAPIApp(ctx context.Context, cfg config.Config, logger *slog.Logger) (*APIApp, error) {
@@ -60,6 +62,7 @@ func NewAPIApp(ctx context.Context, cfg config.Config, logger *slog.Logger) (*AP
 		DB:            database,
 		StatusQueries: appdb.NewStatusQueries(database),
 		WorldModels:   worldModelService,
+		Provider:      provider.NewOpenAI(cfg.Provider, nil),
 	}, nil
 }
 

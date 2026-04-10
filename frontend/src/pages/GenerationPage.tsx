@@ -5,6 +5,7 @@ import { getStatus } from "../api/status";
 import { listWorldModels } from "../api/worldModels";
 import { PageHeader } from "../components/layout/PageHeader";
 import { Panel } from "../components/layout/Panel";
+import { ErrorAlert } from "../components/layout/ErrorAlert";
 import { GenerationJobsList } from "../components/generation/GenerationJobsList";
 import { GenerationRunPanel } from "../components/generation/GenerationRunPanel";
 import type { GenerationJob } from "../types/generation";
@@ -37,11 +38,13 @@ export default function GenerationPage() {
   const [jobs, setJobs] = useState(loaderData.jobs);
   const [selectedWorldModelID, setSelectedWorldModelID] = useState(loaderData.selectedWorldModelID);
   const [runError, setRunError] = useState<string>();
+  const [pollError, setPollError] = useState<string>();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     setJobs(loaderData.jobs);
     setSelectedWorldModelID(loaderData.selectedWorldModelID);
+    setPollError(undefined);
   }, [loaderData.jobs, loaderData.selectedWorldModelID]);
 
   const shouldPoll = useMemo(
@@ -54,12 +57,33 @@ export default function GenerationPage() {
       return undefined;
     }
 
+    let isActive = true;
+    const pollJobs = async () => {
+      try {
+        const nextJobs = await listGenerationJobs({ world_model_id: selectedWorldModelID, limit: 10 });
+        if (!isActive) {
+          return;
+        }
+
+        setJobs(nextJobs);
+        setPollError(undefined);
+      } catch (error) {
+        if (!isActive) {
+          return;
+        }
+
+        setPollError(error instanceof Error ? error.message : "Unable to refresh generation jobs");
+      }
+    };
+
     const interval = window.setInterval(async () => {
-      const nextJobs = await listGenerationJobs({ world_model_id: selectedWorldModelID, limit: 10 });
-      setJobs(nextJobs);
+      await pollJobs();
     }, 5000);
 
-    return () => window.clearInterval(interval);
+    return () => {
+      isActive = false;
+      window.clearInterval(interval);
+    };
   }, [selectedWorldModelID, shouldPoll]);
 
   async function handleRun() {
@@ -69,10 +93,12 @@ export default function GenerationPage() {
 
     setIsSubmitting(true);
     setRunError(undefined);
+    setPollError(undefined);
     try {
       const createdJob = await runGeneration(selectedWorldModelID);
       const nextJobs = await listGenerationJobs({ world_model_id: selectedWorldModelID, limit: 10 });
       setJobs(nextJobs.some((job) => job.id === createdJob.id) ? nextJobs : [createdJob, ...nextJobs]);
+      setPollError(undefined);
     } catch (error) {
       setRunError(error instanceof Error ? error.message : "Unable to run generation");
     } finally {
@@ -82,6 +108,7 @@ export default function GenerationPage() {
 
   function handleWorldModelChange(id: string) {
     setSelectedWorldModelID(id);
+    setPollError(undefined);
     navigate(`/generation?world_model_id=${id}`);
   }
 
@@ -125,6 +152,7 @@ export default function GenerationPage() {
         </Panel>
       </div>
       <Panel title="Recent jobs" subtitle="Latest live jobs for the selected world model">
+        {pollError ? <ErrorAlert message={pollError} /> : null}
         <GenerationJobsList jobs={jobs} />
       </Panel>
     </div>

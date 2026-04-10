@@ -1,4 +1,5 @@
 import { StatusBadge } from "../layout/StatusBadge";
+import { ErrorAlert } from "../layout/ErrorAlert";
 import type { WorldModelSummary } from "../../types/worldModels";
 
 interface GenerationRunPanelProps {
@@ -38,7 +39,7 @@ export function GenerationRunPanel({
           <StatusBadge value={providerReady} />
         </div>
       </div>
-      {runError ? <div className="error-alert">{runError}</div> : null}
+      {runError ? <ErrorAlert message={runError} /> : null}
       <button className="button button--primary" disabled={!selectedWorldModelID || isRunning} onClick={onRun} type="button">
         {isRunning ? "Running generation…" : "Run generation"}
       </button>

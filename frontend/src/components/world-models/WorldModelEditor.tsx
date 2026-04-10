@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { ErrorAlert } from "../layout/ErrorAlert";
 import type { WorldModelDetails, WorldModelPayload } from "../../types/worldModels";
 
 interface WorldModelEditorProps {
@@ -109,7 +110,7 @@ export function WorldModelEditor({
       <div className="stack stack--compact">
         <h3>{modeLabel}</h3>
         <p className="muted">{helperText}</p>
-        {submitError ? <div className="error-alert">{submitError}</div> : null}
+        {submitError ? <ErrorAlert message={submitError} /> : null}
         {submitSuccess ? <div className="success-alert">{submitSuccess}</div> : null}
       </div>
       <div className="form-grid">

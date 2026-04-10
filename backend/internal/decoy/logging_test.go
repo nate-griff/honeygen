@@ -1,6 +1,7 @@
 package decoy
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -8,12 +9,24 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/natet/honeygen/backend/internal/config"
 	"github.com/natet/honeygen/backend/internal/events"
 )
+
+type blockingEventRecorder struct {
+	started chan events.IngestRequest
+	release chan struct{}
+}
+
+func (r *blockingEventRecorder) Record(_ context.Context, payload events.IngestRequest) error {
+	r.started <- payload
+	<-r.release
+	return nil
+}
 
 func TestNewHandlerServesGeneratedFilesAndPostsEvents(t *testing.T) {
 	generatedDir := t.TempDir()
@@ -176,6 +189,85 @@ func TestLandingHandlerCachesDiscoveredLinks(t *testing.T) {
 
 	if discoverCalls != 1 {
 		t.Fatalf("discoverCalls = %d, want %d", discoverCalls, 1)
+	}
+}
+
+func TestLandingHandlerDiscoversFilesAfterInitiallyEmptyDirectory(t *testing.T) {
+	generatedDir := t.TempDir()
+	handler := landingHandler(generatedDir)
+
+	firstReq := httptest.NewRequest(http.MethodGet, "/", nil)
+	firstRec := httptest.NewRecorder()
+	handler.ServeHTTP(firstRec, firstReq)
+
+	if firstRec.Code != http.StatusOK {
+		t.Fatalf("first status = %d, want %d", firstRec.Code, http.StatusOK)
+	}
+	if body := firstRec.Body.String(); !strings.Contains(body, "No generated files are available yet.") {
+		t.Fatalf("first body = %q, want empty-directory message", body)
+	}
+
+	reportPath := filepath.Join(generatedDir, "world-1", "job-1", "public", "report.txt")
+	if err := os.MkdirAll(filepath.Dir(reportPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(reportPath, []byte("hello"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	secondReq := httptest.NewRequest(http.MethodGet, "/", nil)
+	secondRec := httptest.NewRecorder()
+	handler.ServeHTTP(secondRec, secondReq)
+
+	if secondRec.Code != http.StatusOK {
+		t.Fatalf("second status = %d, want %d", secondRec.Code, http.StatusOK)
+	}
+	if body := secondRec.Body.String(); !strings.Contains(body, "/generated/world-1/job-1/public/report.txt") {
+		t.Fatalf("second body = %q, want generated file link", body)
+	}
+}
+
+func TestLoggingMiddlewareRecordsEventsAsynchronously(t *testing.T) {
+	recorder := &blockingEventRecorder{
+		started: make(chan events.IngestRequest, 1),
+		release: make(chan struct{}),
+	}
+	handler := LoggingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		_, _ = io.WriteString(w, "accepted")
+	}), recorder, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+
+	req := httptest.NewRequest(http.MethodPost, "/generated/report.txt", nil)
+	rec := httptest.NewRecorder()
+	done := make(chan struct{})
+
+	go func() {
+		handler.ServeHTTP(rec, req)
+		close(done)
+	}()
+
+	select {
+	case payload := <-recorder.started:
+		if payload.Path != "/generated/report.txt" {
+			t.Fatalf("payload.Path = %q, want %q", payload.Path, "/generated/report.txt")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for recorder to start")
+	}
+
+	select {
+	case <-done:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("ServeHTTP() blocked on event recording")
+	}
+
+	close(recorder.release)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusCreated)
+	}
+	if rec.Body.String() != "accepted" {
+		t.Fatalf("body = %q, want %q", rec.Body.String(), "accepted")
 	}
 }
 

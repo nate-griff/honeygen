@@ -40,7 +40,7 @@ func landingHandler(generatedDir string) http.HandlerFunc {
 
 func landingHandlerWithDiscover(generatedDir string, discover func(string, int) []string) http.HandlerFunc {
 	var (
-		once sync.Once
+		mu   sync.RWMutex
 		page []byte
 	)
 
@@ -50,11 +50,26 @@ func landingHandlerWithDiscover(generatedDir string, discover func(string, int) 
 			return
 		}
 
-		once.Do(func() {
-			page = renderLandingPage(discover(generatedDir, 8))
-		})
+		mu.RLock()
+		cachedPage := page
+		mu.RUnlock()
+		if cachedPage == nil {
+			links := discover(generatedDir, 8)
+			renderedPage := renderLandingPage(links)
+			if len(links) == 0 {
+				cachedPage = renderedPage
+			} else {
+				mu.Lock()
+				if page == nil {
+					page = renderedPage
+				}
+				cachedPage = page
+				mu.Unlock()
+			}
+		}
+
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = w.Write(page)
+		_, _ = w.Write(cachedPage)
 	}
 }
 

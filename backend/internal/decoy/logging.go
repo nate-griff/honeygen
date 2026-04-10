@@ -85,10 +85,7 @@ func LoggingMiddleware(next http.Handler, recorder eventRecorder, logger *slog.L
 			return
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-
-		err := recorder.Record(ctx, events.IngestRequest{
+		payload := events.IngestRequest{
 			Timestamp:  startedAt,
 			Method:     r.Method,
 			Path:       r.URL.Path,
@@ -98,10 +95,15 @@ func LoggingMiddleware(next http.Handler, recorder eventRecorder, logger *slog.L
 			Referer:    r.Referer(),
 			StatusCode: capture.StatusCode(),
 			BytesSent:  capture.bytesSent,
-		})
-		if err != nil {
-			logger.Error("record decoy request event", "error", err, "path", r.URL.Path)
 		}
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+
+			if err := recorder.Record(ctx, payload); err != nil {
+				logger.Error("record decoy request event", "error", err, "path", payload.Path)
+			}
+		}()
 	})
 }
 

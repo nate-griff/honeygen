@@ -18,6 +18,18 @@ func (e requestValidationError) Error() string {
 }
 
 func readJSONBody(w http.ResponseWriter, r *http.Request) ([]byte, error) {
+	body, err := readOptionalJSONBody(w, r)
+	if err != nil {
+		return nil, err
+	}
+	if len(body) == 0 {
+		return nil, requestValidationError{message: "request body must not be empty"}
+	}
+
+	return body, nil
+}
+
+func readOptionalJSONBody(w http.ResponseWriter, r *http.Request) ([]byte, error) {
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxJSONBodyBytes))
 	if err != nil {
 		if strings.Contains(err.Error(), "http: request body too large") {
@@ -27,7 +39,7 @@ func readJSONBody(w http.ResponseWriter, r *http.Request) ([]byte, error) {
 	}
 
 	if len(strings.TrimSpace(string(body))) == 0 {
-		return nil, requestValidationError{message: "request body must not be empty"}
+		return nil, nil
 	}
 	if !json.Valid(body) {
 		return nil, requestValidationError{message: "request body must be valid JSON"}

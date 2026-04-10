@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/natet/honeygen/backend/internal/app"
@@ -103,6 +104,62 @@ func TestProviderTestEndpointReportsUpstreamAuthFailures(t *testing.T) {
 			Message: "provider authentication failed",
 		},
 	})
+}
+
+func TestProviderTestEndpointPersistsFailureMessageWhenGenerationJobIDProvided(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+	}))
+	defer server.Close()
+
+	cfg := testProviderConfig(t, server.URL)
+	application := newTestAPIAppWithConfig(t, cfg)
+	application.Provider = provider.NewOpenAI(cfg.Provider, server.Client())
+	seedGenerationJob(t, application, "world-1", "job-1")
+
+	req := httptest.NewRequest(http.MethodPost, "/api/provider/test", strings.NewReader(`{"generation_job_id":"job-1"}`))
+	rec := httptest.NewRecorder()
+
+	NewRouter(application).ServeHTTP(rec, req)
+
+	assertAPIErrorResponse(t, rec, http.StatusBadGateway, "", models.APIErrorResponse{
+		Error: models.APIError{
+			Code:    "provider_auth_failed",
+			Message: "provider authentication failed",
+		},
+	})
+
+	assertGenerationJobErrorMessage(t, application, "job-1", "provider authentication failed")
+}
+
+func TestProviderTestEndpointSkipsFailurePersistenceWithoutGenerationJobID(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+	}))
+	defer server.Close()
+
+	cfg := testProviderConfig(t, server.URL)
+	application := newTestAPIAppWithConfig(t, cfg)
+	application.Provider = provider.NewOpenAI(cfg.Provider, server.Client())
+	seedGenerationJob(t, application, "world-1", "job-1")
+
+	req := httptest.NewRequest(http.MethodPost, "/api/provider/test", strings.NewReader(`{}`))
+	rec := httptest.NewRecorder()
+
+	NewRouter(application).ServeHTTP(rec, req)
+
+	assertAPIErrorResponse(t, rec, http.StatusBadGateway, "", models.APIErrorResponse{
+		Error: models.APIError{
+			Code:    "provider_auth_failed",
+			Message: "provider authentication failed",
+		},
+	})
+
+	assertGenerationJobErrorMessage(t, application, "job-1", "")
 }
 
 func TestProviderTestEndpointReportsConnectivityFailures(t *testing.T) {
@@ -214,5 +271,35 @@ func testProviderConfig(t *testing.T, baseURL string) config.Config {
 			APIKey:  "test-key",
 			Model:   "gpt-4.1-mini",
 		},
+	}
+}
+
+func seedGenerationJob(t *testing.T, application *app.APIApp, worldModelID, jobID string) {
+	t.Helper()
+
+	if _, err := application.DB.ExecContext(context.Background(), `
+		INSERT INTO world_models (id, name, description, json_blob, created_at, updated_at)
+		VALUES (?, 'World 1', '', '{}', '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')
+	`, worldModelID); err != nil {
+		t.Fatalf("seed world model error = %v", err)
+	}
+
+	if _, err := application.DB.ExecContext(context.Background(), `
+		INSERT INTO generation_jobs (id, world_model_id, status, error_message, created_at, updated_at)
+		VALUES (?, ?, 'failed', '', '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')
+	`, jobID, worldModelID); err != nil {
+		t.Fatalf("seed generation job error = %v", err)
+	}
+}
+
+func assertGenerationJobErrorMessage(t *testing.T, application *app.APIApp, jobID, want string) {
+	t.Helper()
+
+	var message string
+	if err := application.DB.QueryRowContext(context.Background(), `SELECT error_message FROM generation_jobs WHERE id = ?`, jobID).Scan(&message); err != nil {
+		t.Fatalf("query error_message error = %v", err)
+	}
+	if message != want {
+		t.Fatalf("error_message = %q, want %q", message, want)
 	}
 }

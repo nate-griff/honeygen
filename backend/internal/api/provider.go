@@ -64,7 +64,12 @@ func recordProviderFailure(application *app.APIApp, ctx context.Context, generat
 		return
 	}
 
-	if recordErr := appdb.NewGenerationJobRecorder(application.DB).RecordProviderFailure(ctx, generationJobID, err); recordErr != nil {
+	message := provider.SafeErrorMessage(err)
+
+	recordCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if recordErr := appdb.NewGenerationJobRecorder(application.DB).RecordProviderFailure(recordCtx, generationJobID, message); recordErr != nil {
 		application.Logger.Error("record provider failure", "error", recordErr, "generation_job_id", generationJobID)
 	}
 }

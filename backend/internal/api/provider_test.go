@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/natet/honeygen/backend/internal/app"
 	"github.com/natet/honeygen/backend/internal/config"
@@ -132,6 +133,58 @@ func TestProviderTestEndpointPersistsFailureMessageWhenGenerationJobIDProvided(t
 	})
 
 	assertGenerationJobErrorMessage(t, application, "job-1", "provider authentication failed")
+}
+
+func TestProviderTestEndpointPersistsFailureMessageWhenRequestContextCanceled(t *testing.T) {
+	t.Parallel()
+
+	cfg := testProviderConfig(t, "https://provider.example/v1")
+	application := newTestAPIAppWithConfig(t, cfg)
+	application.Provider = contextCanceledTestProvider{}
+	seedGenerationJob(t, application, "world-1", "job-1")
+
+	req := httptest.NewRequest(http.MethodPost, "/api/provider/test", strings.NewReader(`{"generation_job_id":"job-1"}`))
+	requestCtx, cancel := context.WithCancel(req.Context())
+	cancel()
+	req = req.WithContext(requestCtx)
+	rec := httptest.NewRecorder()
+
+	NewRouter(application).ServeHTTP(rec, req)
+
+	assertAPIErrorResponse(t, rec, http.StatusBadGateway, "", models.APIErrorResponse{
+		Error: models.APIError{
+			Code:    "provider_unreachable",
+			Message: "provider request failed",
+		},
+	})
+
+	assertGenerationJobErrorMessage(t, application, "job-1", "provider request failed")
+}
+
+func TestProviderTestEndpointPersistsFailureMessageWhenRequestContextTimesOut(t *testing.T) {
+	t.Parallel()
+
+	cfg := testProviderConfig(t, "https://provider.example/v1")
+	application := newTestAPIAppWithConfig(t, cfg)
+	application.Provider = contextCanceledTestProvider{}
+	seedGenerationJob(t, application, "world-1", "job-1")
+
+	req := httptest.NewRequest(http.MethodPost, "/api/provider/test", strings.NewReader(`{"generation_job_id":"job-1"}`))
+	requestCtx, cancel := context.WithTimeout(req.Context(), time.Millisecond)
+	defer cancel()
+	req = req.WithContext(requestCtx)
+	rec := httptest.NewRecorder()
+
+	NewRouter(application).ServeHTTP(rec, req)
+
+	assertAPIErrorResponse(t, rec, http.StatusBadGateway, "", models.APIErrorResponse{
+		Error: models.APIError{
+			Code:    "provider_unreachable",
+			Message: "provider request failed",
+		},
+	})
+
+	assertGenerationJobErrorMessage(t, application, "job-1", "provider request failed")
 }
 
 func TestProviderTestEndpointSkipsFailurePersistenceWithoutGenerationJobID(t *testing.T) {
@@ -301,5 +354,20 @@ func assertGenerationJobErrorMessage(t *testing.T, application *app.APIApp, jobI
 	}
 	if message != want {
 		t.Fatalf("error_message = %q, want %q", message, want)
+	}
+}
+
+type contextCanceledTestProvider struct{}
+
+func (contextCanceledTestProvider) Generate(context.Context, provider.GenerateRequest) (provider.GenerateResponse, error) {
+	return provider.GenerateResponse{}, nil
+}
+
+func (contextCanceledTestProvider) Test(ctx context.Context) error {
+	<-ctx.Done()
+	return &provider.Error{
+		Kind:    provider.KindConnectivity,
+		Message: "provider request failed",
+		Err:     ctx.Err(),
 	}
 }

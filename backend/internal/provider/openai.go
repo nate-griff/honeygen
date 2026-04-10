@@ -115,6 +115,9 @@ func (p *OpenAIProvider) Generate(ctx context.Context, request GenerateRequest) 
 		"total_tokens":      strconv.Itoa(response.Usage.TotalTokens),
 	}
 	for key, value := range request.Metadata {
+		if _, exists := metadata[key]; exists {
+			continue
+		}
 		metadata[key] = value
 	}
 

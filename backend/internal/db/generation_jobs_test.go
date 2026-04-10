@@ -5,11 +5,9 @@ import (
 	"database/sql"
 	"errors"
 	"testing"
-
-	"github.com/natet/honeygen/backend/internal/provider"
 )
 
-func TestGenerationJobRecorderRecordProviderFailurePersistsSafeMessage(t *testing.T) {
+func TestGenerationJobRecorderRecordProviderFailurePersistsMessage(t *testing.T) {
 	t.Parallel()
 
 	database, err := sql.Open("sqlite", ":memory:")
@@ -33,10 +31,7 @@ func TestGenerationJobRecorderRecordProviderFailurePersistsSafeMessage(t *testin
 	}
 
 	recorder := NewGenerationJobRecorder(database)
-	err = recorder.RecordProviderFailure(context.Background(), "job-1", &provider.Error{
-		Kind: provider.KindConnectivity,
-		Err:  errors.New("dial tcp secret.internal:443: connect: connection refused"),
-	})
+	err = recorder.RecordProviderFailure(context.Background(), "job-1", "provider request failed")
 	if err != nil {
 		t.Fatalf("RecordProviderFailure() error = %v", err)
 	}
@@ -64,10 +59,7 @@ func TestGenerationJobRecorderRecordProviderFailureReturnsNotFound(t *testing.T)
 	}
 
 	recorder := NewGenerationJobRecorder(database)
-	err = recorder.RecordProviderFailure(context.Background(), "missing-job", &provider.Error{
-		Kind:    provider.KindUpstream,
-		Message: "provider returned status 502",
-	})
+	err = recorder.RecordProviderFailure(context.Background(), "missing-job", "provider returned status 502")
 	if !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("RecordProviderFailure() error = %v, want sql.ErrNoRows", err)
 	}

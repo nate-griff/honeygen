@@ -211,3 +211,51 @@ func TestOpenAIProviderGenerateSuccess(t *testing.T) {
 		t.Fatalf("response.Metadata token counts = %+v, want prompt/completion/total tokens", response.Metadata)
 	}
 }
+
+func TestOpenAIProviderGeneratePreservesProviderMetadata(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"model":"gpt-4.1-mini",
+			"choices":[{"message":{"content":"Generated memo"},"finish_reason":"stop"}],
+			"usage":{"prompt_tokens":11,"completion_tokens":7,"total_tokens":18}
+		}`))
+	}))
+	defer server.Close()
+
+	provider := NewOpenAI(config.ProviderConfig{
+		BaseURL: server.URL + "/v1",
+		APIKey:  "test-key",
+		Model:   "gpt-4.1-mini",
+	}, server.Client())
+
+	response, err := provider.Generate(context.Background(), GenerateRequest{
+		SystemPrompt: "Follow the policy.",
+		Prompt:       "Write a memo.",
+		Metadata: map[string]string{
+			"model":             "caller-model",
+			"finish_reason":     "caller-finish",
+			"prompt_tokens":     "999",
+			"completion_tokens": "999",
+			"total_tokens":      "999",
+			"request_id":        "req-123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+	if response.Metadata["model"] != "gpt-4.1-mini" {
+		t.Fatalf("response.Metadata[model] = %q, want %q", response.Metadata["model"], "gpt-4.1-mini")
+	}
+	if response.Metadata["finish_reason"] != "stop" {
+		t.Fatalf("response.Metadata[finish_reason] = %q, want %q", response.Metadata["finish_reason"], "stop")
+	}
+	if response.Metadata["prompt_tokens"] != "11" || response.Metadata["completion_tokens"] != "7" || response.Metadata["total_tokens"] != "18" {
+		t.Fatalf("response.Metadata token counts = %+v, want prompt/completion/total tokens", response.Metadata)
+	}
+	if response.Metadata["request_id"] != "req-123" {
+		t.Fatalf("response.Metadata[request_id] = %q, want %q", response.Metadata["request_id"], "req-123")
+	}
+}

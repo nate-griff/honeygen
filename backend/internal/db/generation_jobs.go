@@ -4,8 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-
-	"github.com/natet/honeygen/backend/internal/provider"
 )
 
 type GenerationJobRecorder struct {
@@ -16,13 +14,13 @@ func NewGenerationJobRecorder(database *sql.DB) *GenerationJobRecorder {
 	return &GenerationJobRecorder{db: database}
 }
 
-func (r *GenerationJobRecorder) RecordProviderFailure(ctx context.Context, jobID string, err error) error {
+func (r *GenerationJobRecorder) RecordProviderFailure(ctx context.Context, jobID, message string) error {
 	result, execErr := r.db.ExecContext(
 		ctx,
 		`UPDATE generation_jobs
 		SET error_message = ?, updated_at = (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
 		WHERE id = ?`,
-		provider.SafeErrorMessage(err),
+		message,
 		jobID,
 	)
 	if execErr != nil {

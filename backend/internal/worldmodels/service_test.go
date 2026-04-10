@@ -280,7 +280,7 @@ func TestServiceEnsureSeedIsIdempotent(t *testing.T) {
 	}
 }
 
-func TestDemoSampleDataMatchesBootstrapSeed(t *testing.T) {
+func TestLoadDemoSeedMatchesRepositorySampleFile(t *testing.T) {
 	path := filepath.Clean(filepath.Join("..", "..", "..", "sample-data", "world-models", "northbridge-financial.json"))
 	fileContents, err := os.ReadFile(path)
 	if err != nil {
@@ -293,8 +293,12 @@ func TestDemoSampleDataMatchesBootstrapSeed(t *testing.T) {
 	}
 
 	var embeddedPayload any
-	if err := json.Unmarshal([]byte(demoWorldModelJSON), &embeddedPayload); err != nil {
-		t.Fatalf("json.Unmarshal(embedded seed) error = %v", err)
+	seedContents, err := loadDemoSeed()
+	if err != nil {
+		t.Fatalf("loadDemoSeed() error = %v", err)
+	}
+	if err := json.Unmarshal(seedContents, &embeddedPayload); err != nil {
+		t.Fatalf("json.Unmarshal(loaded seed) error = %v", err)
 	}
 
 	sampleJSON, err := json.Marshal(samplePayload)
@@ -303,10 +307,10 @@ func TestDemoSampleDataMatchesBootstrapSeed(t *testing.T) {
 	}
 	embeddedJSON, err := json.Marshal(embeddedPayload)
 	if err != nil {
-		t.Fatalf("json.Marshal(embedded seed) error = %v", err)
+		t.Fatalf("json.Marshal(loaded seed) error = %v", err)
 	}
 
 	if string(sampleJSON) != string(embeddedJSON) {
-		t.Fatal("sample file does not match embedded seed")
+		t.Fatal("sample file does not match loaded seed")
 	}
 }

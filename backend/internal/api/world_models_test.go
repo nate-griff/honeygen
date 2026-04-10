@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/natet/honeygen/backend/internal/models"
+	"github.com/natet/honeygen/backend/internal/worldmodels"
 )
 
 func TestWorldModelsListReturnsSeededSummary(t *testing.T) {
@@ -187,6 +188,20 @@ func TestWorldModelsValidationErrorsUseCanonicalShape(t *testing.T) {
 		Error: models.APIError{
 			Code:    "validation_error",
 			Message: "organization is required",
+		},
+	})
+}
+
+func TestWriteWorldModelErrorReturnsConflictForAlreadyExists(t *testing.T) {
+	application := newTestAPIApp(t)
+	rec := httptest.NewRecorder()
+
+	writeWorldModelError(application, rec, "create world model", worldmodels.ErrAlreadyExists)
+
+	assertAPIErrorResponse(t, rec, http.StatusConflict, "", models.APIErrorResponse{
+		Error: models.APIError{
+			Code:    "already_exists",
+			Message: "world model already exists",
 		},
 	})
 }

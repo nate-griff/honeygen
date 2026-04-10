@@ -1,8 +1,8 @@
 services:
   api:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
       target: api
     environment:
       APP_VERSION: ${APP_VERSION:-dev}
@@ -49,8 +49,8 @@ services:
 
   decoy-web:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
       target: decoy-web
     depends_on:
       api:

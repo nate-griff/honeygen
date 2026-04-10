@@ -2,7 +2,6 @@ package worldmodels
 
 import (
 	"errors"
-	"strings"
 	"time"
 )
 
@@ -69,8 +68,4 @@ type WorldModel struct {
 	Employees      []Employee   `json:"employees"`
 	Projects       []string     `json:"projects"`
 	DocumentThemes []string     `json:"document_themes"`
-}
-
-func trimmed(value string) string {
-	return strings.TrimSpace(value)
 }

@@ -1,9 +1,9 @@
 FROM golang:1.22-bookworm AS build-base
-WORKDIR /src
-COPY go.mod go.sum ./
+WORKDIR /src/backend
+COPY backend/go.mod backend/go.sum ./
 RUN go mod download
-COPY cmd ./cmd
-COPY internal ./internal
+COPY backend/cmd ./cmd
+COPY backend/internal ./internal
 
 FROM build-base AS build-api
 RUN CGO_ENABLED=0 GOOS=linux go build -o /out/api ./cmd/api
@@ -28,6 +28,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 USER appuser
 COPY --chown=appuser:appuser --from=build-api /out/api /app/api
+COPY --chown=appuser:appuser sample-data /app/sample-data
 ENV APP_ENV=development \
     HTTP_ADDR=:8080 \
     SQLITE_PATH=/app/storage/sqlite/honeygen.db \

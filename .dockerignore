@@ -1,0 +1,8 @@
+.git
+.env
+backend/bin
+backend/coverage.out
+backend/go.work
+backend/go.work.sum
+backend/storage
+storage

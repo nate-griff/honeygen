@@ -7,19 +7,20 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 type Service struct {
 	repo        Repository
 	idGenerator func() string
-	demoSeed    []byte
+	seedLoader  func() ([]byte, error)
 }
 
 func NewService(repo Repository) *Service {
 	return &Service{
 		repo:        repo,
 		idGenerator: newWorldModelID,
-		demoSeed:    []byte(demoWorldModelJSON),
+		seedLoader:  loadDemoSeed,
 	}
 }
 
@@ -80,7 +81,12 @@ func (s *Service) EnsureSeedData(ctx context.Context) error {
 		return err
 	}
 
-	name, description, err := validatePayload(s.demoSeed)
+	demoSeed, err := s.seedLoader()
+	if err != nil {
+		return fmt.Errorf("load demo world model: %w", err)
+	}
+
+	name, description, err := validatePayload(demoSeed)
 	if err != nil {
 		return fmt.Errorf("normalize demo world model: %w", err)
 	}
@@ -89,7 +95,7 @@ func (s *Service) EnsureSeedData(ctx context.Context) error {
 		ID:          DemoWorldModelID,
 		Name:        name,
 		Description: description,
-		JSONBlob:    string(s.demoSeed),
+		JSONBlob:    string(demoSeed),
 	})
 	if errors.Is(err, ErrAlreadyExists) {
 		return nil
@@ -98,12 +104,16 @@ func (s *Service) EnsureSeedData(ctx context.Context) error {
 }
 
 func Expand(item StoredWorldModel) (map[string]any, error) {
+	normalizedJSON, err := normalizedPayloadJSON(item.JSONBlob)
+	if err != nil {
+		return nil, err
+	}
+
 	var payload map[string]any
-	if err := json.Unmarshal([]byte(item.JSONBlob), &payload); err != nil {
+	if err := json.Unmarshal(normalizedJSON, &payload); err != nil {
 		return nil, fmt.Errorf("decode world model payload: %w", err)
 	}
 
-	normalizeOptionalArrayFields(payload)
 	payload["id"] = item.ID
 	payload["name"] = item.Name
 	payload["description"] = item.Description
@@ -114,11 +124,15 @@ func Expand(item StoredWorldModel) (map[string]any, error) {
 }
 
 func buildSummary(item StoredWorldModel) (WorldModelSummary, error) {
+	normalizedJSON, err := normalizedPayloadJSON(item.JSONBlob)
+	if err != nil {
+		return WorldModelSummary{}, err
+	}
+
 	var payload WorldModel
-	if err := json.Unmarshal([]byte(item.JSONBlob), &payload); err != nil {
+	if err := json.Unmarshal(normalizedJSON, &payload); err != nil {
 		return WorldModelSummary{}, fmt.Errorf("decode world model summary for %q: %w", item.ID, err)
 	}
-	normalizeOptionalSlices(&payload)
 
 	return WorldModelSummary{
 		ID:                 item.ID,
@@ -244,21 +258,15 @@ func validatePayload(payload []byte) (string, string, error) {
 	return trimmed(organization.Name), trimmed(organization.Description), nil
 }
 
-func normalizeOptionalSlices(worldModel *WorldModel) {
-	if worldModel.Branding.Colors == nil {
-		worldModel.Branding.Colors = []string{}
+func normalizedPayloadJSON(jsonBlob string) ([]byte, error) {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(jsonBlob), &raw); err != nil {
+		return nil, fmt.Errorf("decode world model payload: %w", err)
 	}
-}
-
-func normalizeOptionalArrayFields(payload map[string]any) {
-	nested, ok := payload["branding"].(map[string]any)
-	if !ok {
-		return
+	if err := normalizeOptionalArrayFields(raw); err != nil {
+		return nil, err
 	}
-
-	if colors, exists := nested["colors"]; !exists || colors == nil {
-		nested["colors"] = []any{}
-	}
+	return json.Marshal(raw)
 }
 
 func validateRequiredArray(raw map[string]json.RawMessage, key string, validate func([]byte) error) error {
@@ -274,6 +282,56 @@ func isNullJSON(data []byte) bool {
 	return string(data) == "null"
 }
 
+type optionalArrayField struct {
+	objectKey string
+	fieldKey  string
+}
+
+var optionalArrayFields = []optionalArrayField{
+	{objectKey: "branding", fieldKey: "colors"},
+}
+
+func normalizeOptionalArrayFields(raw map[string]json.RawMessage) error {
+	for _, field := range optionalArrayFields {
+		if err := ensureNestedArrayField(raw, field.objectKey, field.fieldKey); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func ensureNestedArrayField(raw map[string]json.RawMessage, objectKey string, fieldKey string) error {
+	if raw == nil {
+		return nil
+	}
+
+	objectRaw, ok := raw[objectKey]
+	if !ok || isNullJSON(objectRaw) {
+		return nil
+	}
+
+	var nested map[string]json.RawMessage
+	if err := json.Unmarshal(objectRaw, &nested); err != nil {
+		return fmt.Errorf("decode %s object: %w", objectKey, err)
+	}
+
+	if value, ok := nested[fieldKey]; ok && !isNullJSON(value) {
+		return nil
+	}
+
+	nested[fieldKey] = json.RawMessage("[]")
+	normalizedObject, err := json.Marshal(nested)
+	if err != nil {
+		return fmt.Errorf("encode %s object: %w", objectKey, err)
+	}
+	raw[objectKey] = normalizedObject
+	return nil
+}
+
+func trimmed(value string) string {
+	return strings.TrimSpace(value)
+}
+
 func newWorldModelID() string {
 	buf := make([]byte, 12)
 	if _, err := rand.Read(buf); err != nil {
@@ -281,49 +339,3 @@ func newWorldModelID() string {
 	}
 	return "wm_" + hex.EncodeToString(buf)
 }
-
-const demoWorldModelJSON = `{
-  "organization": {
-    "name": "Northbridge Financial Advisory",
-    "industry": "Financial Services",
-    "size": "mid-size",
-    "region": "United States",
-    "domain_theme": "northbridgefinancial.local"
-  },
-  "branding": {
-    "tone": "formal",
-    "colors": ["#123B5D", "#B58A3B"]
-  },
-  "departments": [
-    "Finance",
-    "Human Resources",
-    "Information Technology",
-    "Operations",
-    "Compliance"
-  ],
-  "employees": [
-    { "name": "Lauren Chen", "role": "Managing Director", "department": "Finance" },
-    { "name": "Marcus Bell", "role": "Controller", "department": "Finance" },
-    { "name": "Priya Nair", "role": "HR Manager", "department": "Human Resources" },
-    { "name": "Dylan Brooks", "role": "IT Lead", "department": "Information Technology" },
-    { "name": "Avery Patel", "role": "Operations Manager", "department": "Operations" },
-    { "name": "Sofia Ramirez", "role": "Compliance Officer", "department": "Compliance" },
-    { "name": "Ethan Cole", "role": "Financial Analyst", "department": "Finance" },
-    { "name": "Grace Kim", "role": "Client Operations Specialist", "department": "Operations" },
-    { "name": "Noah Foster", "role": "Systems Administrator", "department": "Information Technology" },
-    { "name": "Maya Singh", "role": "Talent Coordinator", "department": "Human Resources" }
-  ],
-  "projects": [
-    "Quarterly Portfolio Review",
-    "SOX Control Refresh",
-    "Endpoint Upgrade Initiative",
-    "Benefits Renewal"
-  ],
-  "document_themes": [
-    "budgets",
-    "policies",
-    "meeting notes",
-    "vendor lists",
-    "roadmaps"
-  ]
-}`

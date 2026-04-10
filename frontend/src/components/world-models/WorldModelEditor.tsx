@@ -111,7 +111,11 @@ export function WorldModelEditor({
         <h3>{modeLabel}</h3>
         <p className="muted">{helperText}</p>
         {submitError ? <ErrorAlert message={submitError} /> : null}
-        {submitSuccess ? <div className="success-alert">{submitSuccess}</div> : null}
+        {submitSuccess ? (
+          <div aria-atomic="true" aria-live="polite" className="success-alert" role="status">
+            {submitSuccess}
+          </div>
+        ) : null}
       </div>
       <div className="form-grid">
         <label>

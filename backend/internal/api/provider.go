@@ -29,7 +29,7 @@ func providerTestHandler(application *app.APIApp) http.HandlerFunc {
 		defer cancel()
 
 		if err := application.Provider.Test(ctx); err != nil {
-			recordProviderFailure(application, ctx, request.GenerationJobID, err)
+			recordProviderFailure(application, request.GenerationJobID, err)
 			writeProviderError(application, w, err)
 			return
 		}
@@ -59,7 +59,7 @@ func readProviderTestRequest(w http.ResponseWriter, r *http.Request) (providerTe
 	return request, nil
 }
 
-func recordProviderFailure(application *app.APIApp, ctx context.Context, generationJobID string, err error) {
+func recordProviderFailure(application *app.APIApp, generationJobID string, err error) {
 	if generationJobID == "" || application == nil || application.DB == nil {
 		return
 	}

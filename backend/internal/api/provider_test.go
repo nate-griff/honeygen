@@ -135,6 +135,22 @@ func TestProviderTestEndpointPersistsFailureMessageWhenGenerationJobIDProvided(t
 	assertGenerationJobErrorMessage(t, application, "job-1", "provider authentication failed")
 }
 
+func TestRecordProviderFailurePersistsFailureMessageWithoutRequestContext(t *testing.T) {
+	t.Parallel()
+
+	cfg := testProviderConfig(t, "https://provider.example/v1")
+	application := newTestAPIAppWithConfig(t, cfg)
+	seedGenerationJob(t, application, "world-1", "job-1")
+
+	recordProviderFailure(application, "job-1", &provider.Error{
+		Kind:    provider.KindConnectivity,
+		Message: "provider request failed",
+		Err:     context.Canceled,
+	})
+
+	assertGenerationJobErrorMessage(t, application, "job-1", "provider request failed")
+}
+
 func TestProviderTestEndpointPersistsFailureMessageWhenRequestContextCanceled(t *testing.T) {
 	t.Parallel()
 

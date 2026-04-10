@@ -43,42 +43,32 @@ type WorldModelSummary struct {
 }
 
 type Organization struct {
-	Name         string `json:"name"`
-	Description  string `json:"description,omitempty"`
-	Industry     string `json:"industry,omitempty"`
-	Headquarters string `json:"headquarters,omitempty"`
-	Size         string `json:"size,omitempty"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Industry    string `json:"industry"`
+	Size        string `json:"size"`
+	Region      string `json:"region"`
+	DomainTheme string `json:"domain_theme"`
 }
 
 type Branding struct {
-	Tone           string   `json:"tone,omitempty"`
-	Voice          string   `json:"voice,omitempty"`
-	PrimaryColor   string   `json:"primaryColor,omitempty"`
-	SecondaryColor string   `json:"secondaryColor,omitempty"`
-	Keywords       []string `json:"keywords,omitempty"`
-}
-
-type Department struct {
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
+	Tone   string   `json:"tone"`
+	Colors []string `json:"colors,omitempty"`
 }
 
 type Employee struct {
-	FullName   string `json:"fullName"`
-	Title      string `json:"title"`
-	Department string `json:"department,omitempty"`
-	Email      string `json:"email,omitempty"`
+	Name       string `json:"name"`
+	Role       string `json:"role"`
+	Department string `json:"department"`
 }
 
-type Project struct {
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-	Status      string `json:"status,omitempty"`
-}
-
-type DocumentTheme struct {
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
+type WorldModel struct {
+	Organization   Organization `json:"organization"`
+	Branding       Branding     `json:"branding"`
+	Departments    []string     `json:"departments"`
+	Employees      []Employee   `json:"employees"`
+	Projects       []string     `json:"projects"`
+	DocumentThemes []string     `json:"document_themes"`
 }
 
 func trimmed(value string) string {

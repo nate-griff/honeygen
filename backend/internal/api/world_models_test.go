@@ -54,11 +54,18 @@ func TestWorldModelsCreateFetchAndUpdate(t *testing.T) {
 	createReq := httptest.NewRequest(http.MethodPost, "/api/world-models", strings.NewReader(`{
 		"organization": {
 			"name": "Acme Advisory",
-			"description": "Boutique advisory firm"
+			"industry": "Financial Services",
+			"size": "mid-size",
+			"region": "United States",
+			"domain_theme": "acmeadvisory.local"
 		},
 		"branding": {
 			"tone": "professional"
-		}
+		},
+		"departments": ["Finance"],
+		"employees": [{"name":"Alex Morgan","role":"Analyst","department":"Finance"}],
+		"projects": ["Portfolio Refresh"],
+		"document_themes": ["budgets"]
 	}`))
 	createReq.Header.Set("Content-Type", "application/json")
 	createRec := httptest.NewRecorder()
@@ -70,12 +77,16 @@ func TestWorldModelsCreateFetchAndUpdate(t *testing.T) {
 	}
 
 	var created struct {
-		ID             string           `json:"id"`
-		Name           string           `json:"name"`
-		Departments    []map[string]any `json:"departments"`
-		Employees      []map[string]any `json:"employees"`
-		Projects       []map[string]any `json:"projects"`
-		DocumentThemes []map[string]any `json:"documentThemes"`
+		ID             string   `json:"id"`
+		Name           string   `json:"name"`
+		Departments    []string `json:"departments"`
+		Projects       []string `json:"projects"`
+		DocumentThemes []string `json:"document_themes"`
+		Employees      []struct {
+			Name       string `json:"name"`
+			Role       string `json:"role"`
+			Department string `json:"department"`
+		} `json:"employees"`
 	}
 	if err := json.Unmarshal(createRec.Body.Bytes(), &created); err != nil {
 		t.Fatalf("json.Unmarshal(create) error = %v", err)
@@ -86,8 +97,17 @@ func TestWorldModelsCreateFetchAndUpdate(t *testing.T) {
 	if created.Name != "Acme Advisory" {
 		t.Fatalf("created.Name = %q, want %q", created.Name, "Acme Advisory")
 	}
-	if created.Departments == nil || created.Employees == nil || created.Projects == nil || created.DocumentThemes == nil {
-		t.Fatalf("expected empty arrays in create response, got %+v", created)
+	if len(created.Departments) != 1 || created.Departments[0] != "Finance" {
+		t.Fatalf("created.Departments = %+v, want one Finance department", created.Departments)
+	}
+	if len(created.Employees) != 1 || created.Employees[0].Name != "Alex Morgan" || created.Employees[0].Role != "Analyst" || created.Employees[0].Department != "Finance" {
+		t.Fatalf("created.Employees = %+v, want spec employee shape", created.Employees)
+	}
+	if len(created.Projects) != 1 || created.Projects[0] != "Portfolio Refresh" {
+		t.Fatalf("created.Projects = %+v, want one project", created.Projects)
+	}
+	if len(created.DocumentThemes) != 1 || created.DocumentThemes[0] != "budgets" {
+		t.Fatalf("created.DocumentThemes = %+v, want one document theme", created.DocumentThemes)
 	}
 
 	getReq := httptest.NewRequest(http.MethodGet, "/api/world-models/"+created.ID, nil)
@@ -102,15 +122,18 @@ func TestWorldModelsCreateFetchAndUpdate(t *testing.T) {
 	updateReq := httptest.NewRequest(http.MethodPut, "/api/world-models/"+created.ID, strings.NewReader(`{
 		"organization": {
 			"name": "Acme Advisory Updated",
-			"description": "Updated boutique advisory firm"
+			"industry": "Financial Services",
+			"size": "mid-size",
+			"region": "Canada",
+			"domain_theme": "acmeadvisory.ca"
 		},
 		"branding": {
 			"tone": "modern"
 		},
-		"departments": [{"name":"Finance"}],
-		"employees": [{"fullName":"Alex Morgan","title":"Analyst","department":"Finance"}],
-		"projects": [{"name":"Portfolio Refresh","status":"active"}],
-		"documentThemes": [{"name":"Compliance","description":"Regulatory summaries"}]
+		"departments": ["Finance"],
+		"employees": [{"name":"Alex Morgan","role":"Analyst","department":"Finance"}],
+		"projects": ["Portfolio Refresh"],
+		"document_themes": ["compliance"]
 	}`))
 	updateReq.Header.Set("Content-Type", "application/json")
 	updateRec := httptest.NewRecorder()
@@ -124,11 +147,12 @@ func TestWorldModelsCreateFetchAndUpdate(t *testing.T) {
 	var updated struct {
 		Name         string `json:"name"`
 		Organization struct {
-			Name string `json:"name"`
+			Name        string `json:"name"`
+			Region      string `json:"region"`
+			DomainTheme string `json:"domain_theme"`
 		} `json:"organization"`
-		Departments []struct {
-			Name string `json:"name"`
-		} `json:"departments"`
+		Departments    []string `json:"departments"`
+		DocumentThemes []string `json:"document_themes"`
 	}
 	if err := json.Unmarshal(updateRec.Body.Bytes(), &updated); err != nil {
 		t.Fatalf("json.Unmarshal(update) error = %v", err)
@@ -136,8 +160,14 @@ func TestWorldModelsCreateFetchAndUpdate(t *testing.T) {
 	if updated.Name != "Acme Advisory Updated" || updated.Organization.Name != "Acme Advisory Updated" {
 		t.Fatalf("updated = %+v, want updated names", updated)
 	}
-	if len(updated.Departments) != 1 || updated.Departments[0].Name != "Finance" {
+	if updated.Organization.Region != "Canada" || updated.Organization.DomainTheme != "acmeadvisory.ca" {
+		t.Fatalf("updated.Organization = %+v, want updated spec fields", updated.Organization)
+	}
+	if len(updated.Departments) != 1 || updated.Departments[0] != "Finance" {
 		t.Fatalf("updated.Departments = %+v, want one Finance department", updated.Departments)
+	}
+	if len(updated.DocumentThemes) != 1 || updated.DocumentThemes[0] != "compliance" {
+		t.Fatalf("updated.DocumentThemes = %+v, want one compliance theme", updated.DocumentThemes)
 	}
 }
 

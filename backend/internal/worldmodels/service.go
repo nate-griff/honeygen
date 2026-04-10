@@ -113,12 +113,7 @@ func Expand(item StoredWorldModel) (map[string]any, error) {
 }
 
 func buildSummary(item StoredWorldModel) (WorldModelSummary, error) {
-	var payload struct {
-		Departments    []json.RawMessage `json:"departments"`
-		Employees      []json.RawMessage `json:"employees"`
-		Projects       []json.RawMessage `json:"projects"`
-		DocumentThemes []json.RawMessage `json:"documentThemes"`
-	}
+	var payload WorldModel
 	if err := json.Unmarshal([]byte(item.JSONBlob), &payload); err != nil {
 		return WorldModelSummary{}, fmt.Errorf("decode world model summary for %q: %w", item.ID, err)
 	}
@@ -153,24 +148,39 @@ func normalizePayload(payload []byte) ([]byte, string, string, error) {
 	if trimmed(organization.Name) == "" {
 		return nil, "", "", ValidationError{Message: "organization.name is required"}
 	}
+	if trimmed(organization.Industry) == "" {
+		return nil, "", "", ValidationError{Message: "organization.industry is required"}
+	}
+	if trimmed(organization.Size) == "" {
+		return nil, "", "", ValidationError{Message: "organization.size is required"}
+	}
+	if trimmed(organization.Region) == "" {
+		return nil, "", "", ValidationError{Message: "organization.region is required"}
+	}
+	if trimmed(organization.DomainTheme) == "" {
+		return nil, "", "", ValidationError{Message: "organization.domain_theme is required"}
+	}
 
 	brandingRaw, ok := raw["branding"]
 	if !ok || isNullJSON(brandingRaw) {
 		return nil, "", "", ValidationError{Message: "branding is required"}
 	}
-	var branding map[string]any
+	var branding Branding
 	if err := json.Unmarshal(brandingRaw, &branding); err != nil {
 		return nil, "", "", ValidationError{Message: "branding must be an object"}
 	}
+	if trimmed(branding.Tone) == "" {
+		return nil, "", "", ValidationError{Message: "branding.tone is required"}
+	}
 
-	if err := validateOptionalArray(raw, "departments", func(data []byte) error {
-		var departments []Department
+	if err := validateRequiredArray(raw, "departments", func(data []byte) error {
+		var departments []string
 		if err := json.Unmarshal(data, &departments); err != nil {
 			return ValidationError{Message: "departments must be an array"}
 		}
 		for _, department := range departments {
-			if trimmed(department.Name) == "" {
-				return ValidationError{Message: "departments[].name is required"}
+			if trimmed(department) == "" {
+				return ValidationError{Message: "departments[] must be a non-empty string"}
 			}
 		}
 		return nil
@@ -178,17 +188,20 @@ func normalizePayload(payload []byte) ([]byte, string, string, error) {
 		return nil, "", "", err
 	}
 
-	if err := validateOptionalArray(raw, "employees", func(data []byte) error {
+	if err := validateRequiredArray(raw, "employees", func(data []byte) error {
 		var employees []Employee
 		if err := json.Unmarshal(data, &employees); err != nil {
 			return ValidationError{Message: "employees must be an array"}
 		}
 		for _, employee := range employees {
-			if trimmed(employee.FullName) == "" {
-				return ValidationError{Message: "employees[].fullName is required"}
+			if trimmed(employee.Name) == "" {
+				return ValidationError{Message: "employees[].name is required"}
 			}
-			if trimmed(employee.Title) == "" {
-				return ValidationError{Message: "employees[].title is required"}
+			if trimmed(employee.Role) == "" {
+				return ValidationError{Message: "employees[].role is required"}
+			}
+			if trimmed(employee.Department) == "" {
+				return ValidationError{Message: "employees[].department is required"}
 			}
 		}
 		return nil
@@ -196,14 +209,14 @@ func normalizePayload(payload []byte) ([]byte, string, string, error) {
 		return nil, "", "", err
 	}
 
-	if err := validateOptionalArray(raw, "projects", func(data []byte) error {
-		var projects []Project
+	if err := validateRequiredArray(raw, "projects", func(data []byte) error {
+		var projects []string
 		if err := json.Unmarshal(data, &projects); err != nil {
 			return ValidationError{Message: "projects must be an array"}
 		}
 		for _, project := range projects {
-			if trimmed(project.Name) == "" {
-				return ValidationError{Message: "projects[].name is required"}
+			if trimmed(project) == "" {
+				return ValidationError{Message: "projects[] must be a non-empty string"}
 			}
 		}
 		return nil
@@ -211,14 +224,14 @@ func normalizePayload(payload []byte) ([]byte, string, string, error) {
 		return nil, "", "", err
 	}
 
-	if err := validateOptionalArray(raw, "documentThemes", func(data []byte) error {
-		var documentThemes []DocumentTheme
+	if err := validateRequiredArray(raw, "document_themes", func(data []byte) error {
+		var documentThemes []string
 		if err := json.Unmarshal(data, &documentThemes); err != nil {
-			return ValidationError{Message: "documentThemes must be an array"}
+			return ValidationError{Message: "document_themes must be an array"}
 		}
 		for _, theme := range documentThemes {
-			if trimmed(theme.Name) == "" {
-				return ValidationError{Message: "documentThemes[].name is required"}
+			if trimmed(theme) == "" {
+				return ValidationError{Message: "document_themes[] must be a non-empty string"}
 			}
 		}
 		return nil
@@ -226,7 +239,34 @@ func normalizePayload(payload []byte) ([]byte, string, string, error) {
 		return nil, "", "", err
 	}
 
-	normalizedPayload, err := json.Marshal(raw)
+	var worldModel WorldModel
+	if err := json.Unmarshal(payload, &worldModel); err != nil {
+		return nil, "", "", ValidationError{Message: "request body must be a JSON object"}
+	}
+
+	worldModel.Organization.Name = trimmed(worldModel.Organization.Name)
+	worldModel.Organization.Description = trimmed(worldModel.Organization.Description)
+	worldModel.Organization.Industry = trimmed(worldModel.Organization.Industry)
+	worldModel.Organization.Size = trimmed(worldModel.Organization.Size)
+	worldModel.Organization.Region = trimmed(worldModel.Organization.Region)
+	worldModel.Organization.DomainTheme = trimmed(worldModel.Organization.DomainTheme)
+	worldModel.Branding.Tone = trimmed(worldModel.Branding.Tone)
+	for i := range worldModel.Departments {
+		worldModel.Departments[i] = trimmed(worldModel.Departments[i])
+	}
+	for i := range worldModel.Employees {
+		worldModel.Employees[i].Name = trimmed(worldModel.Employees[i].Name)
+		worldModel.Employees[i].Role = trimmed(worldModel.Employees[i].Role)
+		worldModel.Employees[i].Department = trimmed(worldModel.Employees[i].Department)
+	}
+	for i := range worldModel.Projects {
+		worldModel.Projects[i] = trimmed(worldModel.Projects[i])
+	}
+	for i := range worldModel.DocumentThemes {
+		worldModel.DocumentThemes[i] = trimmed(worldModel.DocumentThemes[i])
+	}
+
+	normalizedPayload, err := json.Marshal(worldModel)
 	if err != nil {
 		return nil, "", "", fmt.Errorf("marshal normalized world model: %w", err)
 	}
@@ -234,11 +274,10 @@ func normalizePayload(payload []byte) ([]byte, string, string, error) {
 	return normalizedPayload, trimmed(organization.Name), trimmed(organization.Description), nil
 }
 
-func validateOptionalArray(raw map[string]json.RawMessage, key string, validate func([]byte) error) error {
+func validateRequiredArray(raw map[string]json.RawMessage, key string, validate func([]byte) error) error {
 	data, ok := raw[key]
 	if !ok || isNullJSON(data) {
-		raw[key] = json.RawMessage("[]")
-		return nil
+		return ValidationError{Message: key + " is required"}
 	}
 
 	return validate(data)
@@ -259,48 +298,45 @@ func newWorldModelID() string {
 const demoWorldModelJSON = `{
   "organization": {
     "name": "Northbridge Financial Advisory",
-    "description": "Mid-sized US financial services firm serving regional businesses and high-net-worth clients.",
-    "industry": "Financial services",
-    "headquarters": "Chicago, IL, USA",
-    "size": "Mid-sized"
+    "industry": "Financial Services",
+    "size": "mid-size",
+    "region": "United States",
+    "domain_theme": "northbridgefinancial.local"
   },
   "branding": {
-    "tone": "Professional and reassuring",
-    "voice": "Confident, precise, and client-focused",
-    "primaryColor": "#123B5D",
-    "secondaryColor": "#B58A3B",
-    "keywords": ["trust", "compliance", "growth"]
+    "tone": "formal",
+    "colors": ["#123B5D", "#B58A3B"]
   },
   "departments": [
-    { "name": "Finance", "description": "Financial planning, reporting, and budgeting." },
-    { "name": "Human Resources", "description": "Recruiting, onboarding, and people operations." },
-    { "name": "Information Technology", "description": "Internal systems, endpoint support, and security coordination." },
-    { "name": "Operations", "description": "Client onboarding, process execution, and vendor management." },
-    { "name": "Compliance", "description": "Regulatory reporting, policy oversight, and audit readiness." }
+    "Finance",
+    "Human Resources",
+    "Information Technology",
+    "Operations",
+    "Compliance"
   ],
   "employees": [
-    { "fullName": "Lauren Chen", "title": "Managing Director", "department": "Finance", "email": "lauren.chen@northbridge.example" },
-    { "fullName": "Marcus Bell", "title": "Controller", "department": "Finance", "email": "marcus.bell@northbridge.example" },
-    { "fullName": "Priya Nair", "title": "HR Manager", "department": "Human Resources", "email": "priya.nair@northbridge.example" },
-    { "fullName": "Dylan Brooks", "title": "IT Lead", "department": "Information Technology", "email": "dylan.brooks@northbridge.example" },
-    { "fullName": "Avery Patel", "title": "Operations Manager", "department": "Operations", "email": "avery.patel@northbridge.example" },
-    { "fullName": "Sofia Ramirez", "title": "Compliance Officer", "department": "Compliance", "email": "sofia.ramirez@northbridge.example" },
-    { "fullName": "Ethan Cole", "title": "Financial Analyst", "department": "Finance", "email": "ethan.cole@northbridge.example" },
-    { "fullName": "Grace Kim", "title": "Client Operations Specialist", "department": "Operations", "email": "grace.kim@northbridge.example" },
-    { "fullName": "Noah Foster", "title": "Systems Administrator", "department": "Information Technology", "email": "noah.foster@northbridge.example" },
-    { "fullName": "Maya Singh", "title": "Talent Coordinator", "department": "Human Resources", "email": "maya.singh@northbridge.example" }
+    { "name": "Lauren Chen", "role": "Managing Director", "department": "Finance" },
+    { "name": "Marcus Bell", "role": "Controller", "department": "Finance" },
+    { "name": "Priya Nair", "role": "HR Manager", "department": "Human Resources" },
+    { "name": "Dylan Brooks", "role": "IT Lead", "department": "Information Technology" },
+    { "name": "Avery Patel", "role": "Operations Manager", "department": "Operations" },
+    { "name": "Sofia Ramirez", "role": "Compliance Officer", "department": "Compliance" },
+    { "name": "Ethan Cole", "role": "Financial Analyst", "department": "Finance" },
+    { "name": "Grace Kim", "role": "Client Operations Specialist", "department": "Operations" },
+    { "name": "Noah Foster", "role": "Systems Administrator", "department": "Information Technology" },
+    { "name": "Maya Singh", "role": "Talent Coordinator", "department": "Human Resources" }
   ],
   "projects": [
-    { "name": "Quarterly Portfolio Review", "description": "Prepare advisory packets for top-tier clients.", "status": "active" },
-    { "name": "SOX Control Refresh", "description": "Update internal control narratives and evidence collection.", "status": "active" },
-    { "name": "Endpoint Upgrade Initiative", "description": "Refresh employee laptops and enforce new baseline policies.", "status": "planned" },
-    { "name": "Benefits Renewal", "description": "Coordinate annual benefits review and employee communications.", "status": "planned" }
+    "Quarterly Portfolio Review",
+    "SOX Control Refresh",
+    "Endpoint Upgrade Initiative",
+    "Benefits Renewal"
   ],
-  "documentThemes": [
-    { "name": "Finance", "description": "Budgets, forecasts, statements, and board-ready financial narratives." },
-    { "name": "HR", "description": "Policies, onboarding guides, reviews, and employee communications." },
-    { "name": "IT", "description": "Access procedures, system inventories, and security incident communications." },
-    { "name": "Operations", "description": "Runbooks, vendor packets, and client onboarding documents." },
-    { "name": "Compliance", "description": "Regulatory summaries, audit checklists, and policy attestations." }
+  "document_themes": [
+    "budgets",
+    "policies",
+    "meeting notes",
+    "vendor lists",
+    "roadmaps"
   ]
 }`

@@ -9,18 +9,27 @@ import (
 	"testing"
 )
 
-func TestServiceCreateDefaultsOptionalArraysAndBuildsSummary(t *testing.T) {
+func TestServiceCreatePreservesSpecShape(t *testing.T) {
 	database := newTestDatabase(t)
 	service := NewService(NewRepository(database))
 
 	model, err := service.Create(context.Background(), []byte(`{
 		"organization": {
 			"name": "Acme Advisory",
-			"description": "Boutique advisory firm"
+			"industry": "Financial Services",
+			"size": "mid-size",
+			"region": "United States",
+			"domain_theme": "acmeadvisory.local"
 		},
 		"branding": {
 			"tone": "professional"
-		}
+		},
+		"departments": ["Finance"],
+		"employees": [
+			{"name":"Alex Morgan","role":"Analyst","department":"Finance"}
+		],
+		"projects": ["Portfolio Refresh"],
+		"document_themes": ["budgets"]
 	}`))
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
@@ -29,22 +38,40 @@ func TestServiceCreateDefaultsOptionalArraysAndBuildsSummary(t *testing.T) {
 	if model.Name != "Acme Advisory" {
 		t.Fatalf("model.Name = %q, want %q", model.Name, "Acme Advisory")
 	}
-	if model.Description != "Boutique advisory firm" {
-		t.Fatalf("model.Description = %q, want %q", model.Description, "Boutique advisory firm")
-	}
 
 	var payload map[string]any
 	if err := json.Unmarshal([]byte(model.JSONBlob), &payload); err != nil {
 		t.Fatalf("json.Unmarshal() error = %v", err)
 	}
 
-	for _, key := range []string{"departments", "employees", "projects", "documentThemes"} {
-		values, ok := payload[key].([]any)
-		if !ok {
-			t.Fatalf("payload[%q] = %#v, want []any", key, payload[key])
+	if payload["document_themes"] == nil {
+		t.Fatalf("payload = %#v, want document_themes key", payload)
+	}
+	if payload["documentThemes"] != nil {
+		t.Fatalf("payload = %#v, want documentThemes key removed", payload)
+	}
+
+	organization, ok := payload["organization"].(map[string]any)
+	if !ok {
+		t.Fatalf("payload[organization] = %#v, want object", payload["organization"])
+	}
+	for _, key := range []string{"name", "industry", "size", "region", "domain_theme"} {
+		if organization[key] == nil || organization[key] == "" {
+			t.Fatalf("organization[%q] = %#v, want non-empty value", key, organization[key])
 		}
-		if len(values) != 0 {
-			t.Fatalf("len(payload[%q]) = %d, want 0", key, len(values))
+	}
+
+	employees, ok := payload["employees"].([]any)
+	if !ok || len(employees) != 1 {
+		t.Fatalf("payload[employees] = %#v, want one employee", payload["employees"])
+	}
+	employee, ok := employees[0].(map[string]any)
+	if !ok {
+		t.Fatalf("employees[0] = %#v, want object", employees[0])
+	}
+	for _, key := range []string{"name", "role", "department"} {
+		if employee[key] == nil || employee[key] == "" {
+			t.Fatalf("employee[%q] = %#v, want non-empty value", key, employee[key])
 		}
 	}
 }
@@ -65,13 +92,58 @@ func TestServiceCreateValidatesRequiredFields(t *testing.T) {
 		},
 		{
 			name:    "missing branding",
-			payload: `{"organization":{"name":"Acme Advisory"}}`,
+			payload: `{"organization":{"name":"Acme Advisory","industry":"Financial Services","size":"mid-size","region":"United States","domain_theme":"acmeadvisory.local"}}`,
 			message: "branding is required",
 		},
 		{
 			name:    "missing organization name",
-			payload: `{"organization":{"description":"x"},"branding":{}}`,
+			payload: `{"organization":{"industry":"Financial Services","size":"mid-size","region":"United States","domain_theme":"acmeadvisory.local"},"branding":{"tone":"professional"},"departments":[],"employees":[],"projects":[],"document_themes":[]}`,
 			message: "organization.name is required",
+		},
+		{
+			name:    "missing organization industry",
+			payload: `{"organization":{"name":"Acme Advisory","size":"mid-size","region":"United States","domain_theme":"acmeadvisory.local"},"branding":{"tone":"professional"},"departments":[],"employees":[],"projects":[],"document_themes":[]}`,
+			message: "organization.industry is required",
+		},
+		{
+			name:    "missing organization size",
+			payload: `{"organization":{"name":"Acme Advisory","industry":"Financial Services","region":"United States","domain_theme":"acmeadvisory.local"},"branding":{"tone":"professional"},"departments":[],"employees":[],"projects":[],"document_themes":[]}`,
+			message: "organization.size is required",
+		},
+		{
+			name:    "missing organization region",
+			payload: `{"organization":{"name":"Acme Advisory","industry":"Financial Services","size":"mid-size","domain_theme":"acmeadvisory.local"},"branding":{"tone":"professional"},"departments":[],"employees":[],"projects":[],"document_themes":[]}`,
+			message: "organization.region is required",
+		},
+		{
+			name:    "missing organization domain theme",
+			payload: `{"organization":{"name":"Acme Advisory","industry":"Financial Services","size":"mid-size","region":"United States"},"branding":{"tone":"professional"},"departments":[],"employees":[],"projects":[],"document_themes":[]}`,
+			message: "organization.domain_theme is required",
+		},
+		{
+			name:    "missing branding tone",
+			payload: `{"organization":{"name":"Acme Advisory","industry":"Financial Services","size":"mid-size","region":"United States","domain_theme":"acmeadvisory.local"},"branding":{},"departments":[],"employees":[],"projects":[],"document_themes":[]}`,
+			message: "branding.tone is required",
+		},
+		{
+			name:    "missing departments",
+			payload: `{"organization":{"name":"Acme Advisory","industry":"Financial Services","size":"mid-size","region":"United States","domain_theme":"acmeadvisory.local"},"branding":{"tone":"professional"},"employees":[],"projects":[],"document_themes":[]}`,
+			message: "departments is required",
+		},
+		{
+			name:    "missing employees",
+			payload: `{"organization":{"name":"Acme Advisory","industry":"Financial Services","size":"mid-size","region":"United States","domain_theme":"acmeadvisory.local"},"branding":{"tone":"professional"},"departments":[],"projects":[],"document_themes":[]}`,
+			message: "employees is required",
+		},
+		{
+			name:    "missing projects",
+			payload: `{"organization":{"name":"Acme Advisory","industry":"Financial Services","size":"mid-size","region":"United States","domain_theme":"acmeadvisory.local"},"branding":{"tone":"professional"},"departments":[],"employees":[],"document_themes":[]}`,
+			message: "projects is required",
+		},
+		{
+			name:    "missing document themes",
+			payload: `{"organization":{"name":"Acme Advisory","industry":"Financial Services","size":"mid-size","region":"United States","domain_theme":"acmeadvisory.local"},"branding":{"tone":"professional"},"departments":[],"employees":[],"projects":[]}`,
+			message: "document_themes is required",
 		},
 	}
 

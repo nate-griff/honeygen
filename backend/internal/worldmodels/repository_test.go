@@ -17,7 +17,7 @@ func TestSQLiteRepositoryCreateListGetAndUpdate(t *testing.T) {
 		ID:          "world-1",
 		Name:        "Acme Advisory",
 		Description: "Initial description",
-		JSONBlob:    `{"organization":{"name":"Acme Advisory"},"branding":{},"departments":[],"employees":[],"projects":[],"documentThemes":[]}`,
+		JSONBlob:    `{"organization":{"name":"Acme Advisory","industry":"Financial Services","size":"mid-size","region":"United States","domain_theme":"acmeadvisory.local"},"branding":{"tone":"professional"},"departments":[],"employees":[],"projects":[],"document_themes":[]}`,
 	})
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
@@ -52,7 +52,7 @@ func TestSQLiteRepositoryCreateListGetAndUpdate(t *testing.T) {
 		ID:          "world-1",
 		Name:        "Acme Advisory Updated",
 		Description: "Updated description",
-		JSONBlob:    `{"organization":{"name":"Acme Advisory Updated"},"branding":{},"departments":[{"name":"Finance"}],"employees":[],"projects":[],"documentThemes":[]}`,
+		JSONBlob:    `{"organization":{"name":"Acme Advisory Updated","industry":"Financial Services","size":"mid-size","region":"Canada","domain_theme":"acmeadvisory.ca"},"branding":{"tone":"professional"},"departments":["Finance"],"employees":[],"projects":[],"document_themes":[]}`,
 	})
 	if err != nil {
 		t.Fatalf("Update() error = %v", err)

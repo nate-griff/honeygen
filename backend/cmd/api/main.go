@@ -2,9 +2,10 @@ package main
 
 import (
 	"fmt"
-	"github.com/natet/honeygen/backend/internal/config"
 	"log"
 	"net/http"
+
+	"github.com/natet/honeygen/backend/internal/config"
 )
 
 func main() {

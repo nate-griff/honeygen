@@ -4,7 +4,7 @@ This worktree bootstraps the Decoy Research Platform monorepo with three Docker 
 
 - `api` - Go API runtime with Debian-based packaging and `wkhtmltopdf`
 - `admin-web` - React + TypeScript admin UI built with Vite and served by NGINX
-- `decoy-web` - Go-based decoy web runtime placeholder
+- `decoy-web` - Go-based decoy web runtime placeholder with a lean Debian runtime
 
 ## Repository layout
 

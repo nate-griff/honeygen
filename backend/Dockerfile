@@ -13,7 +13,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/decoy-web ./cmd/decoy
 
 FROM debian:bookworm-slim AS runtime-base
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates wkhtmltopdf \
+    && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 RUN adduser --system --group appuser \
@@ -22,6 +22,11 @@ RUN adduser --system --group appuser \
 USER appuser
 
 FROM runtime-base AS api
+USER root
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends wget wkhtmltopdf \
+    && rm -rf /var/lib/apt/lists/*
+USER appuser
 COPY --from=build-api /out/api /app/api
 ENV APP_ENV=development \
     HTTP_ADDR=:8080 \

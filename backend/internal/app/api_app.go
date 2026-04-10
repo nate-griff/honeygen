@@ -14,10 +14,10 @@ import (
 )
 
 type APIApp struct {
-	Config          config.Config
-	Logger          *slog.Logger
-	DB              *sql.DB
-	MigrationsReady bool
+	Config        config.Config
+	Logger        *slog.Logger
+	DB            *sql.DB
+	StatusQueries appdb.StatusSummaryReader
 }
 
 func NewAPIApp(ctx context.Context, cfg config.Config, logger *slog.Logger) (*APIApp, error) {
@@ -47,10 +47,10 @@ func NewAPIApp(ctx context.Context, cfg config.Config, logger *slog.Logger) (*AP
 	}
 
 	return &APIApp{
-		Config:          cfg,
-		Logger:          logger,
-		DB:              database,
-		MigrationsReady: true,
+		Config:        cfg,
+		Logger:        logger,
+		DB:            database,
+		StatusQueries: appdb.NewStatusQueries(database),
 	}, nil
 }
 
@@ -97,82 +97,16 @@ func (a *APIApp) Status(ctx context.Context) (models.StatusResponse, error) {
 		return response, nil
 	}
 
-	assetsCount, err := a.countAssets(ctx)
+	summary, err := a.StatusQueries.ReadStatusSummary(ctx, time.Now().Add(-24*time.Hour))
 	if err != nil {
 		return response, err
 	}
-	recentEventsCount, err := a.countRecentEvents(ctx, time.Now().Add(-24*time.Hour))
-	if err != nil {
-		return response, err
-	}
-	response.Counts = models.StatusCounts{
-		Assets:       assetsCount,
-		RecentEvents: recentEventsCount,
-	}
-
-	latestJob, err := a.latestJobSummary(ctx)
-	if err != nil {
-		return response, err
-	}
-	response.LatestJob = latestJob
+	response.Counts = summary.Counts
+	response.LatestJob = summary.LatestJob
 
 	return response, nil
 }
 
 func (a *APIApp) databaseReady(ctx context.Context) bool {
-	return a != nil && a.DB != nil && a.MigrationsReady && a.DB.PingContext(ctx) == nil
-}
-
-func (a *APIApp) countAssets(ctx context.Context) (int, error) {
-	var count int
-	if err := a.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM assets`).Scan(&count); err != nil {
-		return 0, fmt.Errorf("count assets: %w", err)
-	}
-	return count, nil
-}
-
-func (a *APIApp) countRecentEvents(ctx context.Context, since time.Time) (int, error) {
-	var count int
-	if err := a.DB.QueryRowContext(
-		ctx,
-		`SELECT COUNT(*) FROM events WHERE datetime(timestamp) >= datetime(?)`,
-		since.UTC().Format(time.RFC3339),
-	).Scan(&count); err != nil {
-		return 0, fmt.Errorf("count recent events: %w", err)
-	}
-	return count, nil
-}
-
-func (a *APIApp) latestJobSummary(ctx context.Context) (*models.LatestJobSummary, error) {
-	const query = `
-SELECT
-	j.id,
-	j.world_model_id,
-	j.status,
-	COALESCE(j.completed_at, ''),
-	(
-		SELECT COUNT(*)
-		FROM assets AS a
-		WHERE a.generation_job_id = j.id
-	) AS asset_count
-FROM generation_jobs AS j
-ORDER BY j.created_at DESC
-LIMIT 1
-`
-
-	var job models.LatestJobSummary
-	err := a.DB.QueryRowContext(ctx, query).Scan(
-		&job.ID,
-		&job.WorldModelID,
-		&job.Status,
-		&job.CompletedAt,
-		&job.AssetCount,
-	)
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("query latest job: %w", err)
-	}
-	return &job, nil
+	return a != nil && a.DB != nil && a.DB.PingContext(ctx) == nil
 }

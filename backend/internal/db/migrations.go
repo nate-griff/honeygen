@@ -104,7 +104,7 @@ var schemaUpgrades = []struct {
 	{"events", "referer", `ALTER TABLE events ADD COLUMN referer TEXT NOT NULL DEFAULT ''`},
 	{"events", "status_code", `ALTER TABLE events ADD COLUMN status_code INTEGER NOT NULL DEFAULT 0`},
 	{"events", "bytes_sent", `ALTER TABLE events ADD COLUMN bytes_sent INTEGER NOT NULL DEFAULT 0`},
-	{"events", "timestamp", `ALTER TABLE events ADD COLUMN timestamp TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))`},
+	{"events", "timestamp", `ALTER TABLE events ADD COLUMN timestamp TEXT`},
 }
 
 var schemaIndexes = []string{
@@ -123,6 +123,8 @@ func Migrate(ctx context.Context, database *sql.DB) error {
 		_ = tx.Rollback()
 	}()
 
+	eventTimestampAdded := false
+
 	if _, err := tx.ExecContext(ctx, baseSchemaSQL); err != nil {
 		return fmt.Errorf("apply schema: %w", err)
 	}
@@ -138,10 +140,21 @@ func Migrate(ctx context.Context, database *sql.DB) error {
 		if _, err := tx.ExecContext(ctx, upgrade.sql); err != nil {
 			return fmt.Errorf("apply schema upgrade %s.%s: %w", upgrade.table, upgrade.column, err)
 		}
+		if upgrade.table == "events" && upgrade.column == "timestamp" {
+			eventTimestampAdded = true
+		}
 	}
 
-	if err := backfillLegacyData(ctx, tx); err != nil {
-		return err
+	if eventTimestampAdded {
+		createdAtExists, err := columnExists(ctx, tx, "events", "created_at")
+		if err != nil {
+			return fmt.Errorf("inspect events.created_at: %w", err)
+		}
+		if createdAtExists {
+			if _, err := tx.ExecContext(ctx, `UPDATE events SET timestamp = created_at WHERE timestamp IS NULL OR timestamp = ''`); err != nil {
+				return fmt.Errorf("backfill events.timestamp from created_at: %w", err)
+			}
+		}
 	}
 
 	for _, statement := range schemaIndexes {
@@ -159,68 +172,6 @@ func Migrate(ctx context.Context, database *sql.DB) error {
 	}
 
 	return nil
-}
-
-func backfillLegacyData(ctx context.Context, tx *sql.Tx) error {
-	if hasColumn(ctx, tx, "assets", "job_id") {
-		if _, err := tx.ExecContext(ctx, `UPDATE assets SET generation_job_id = job_id WHERE generation_job_id = ''`); err != nil {
-			return fmt.Errorf("backfill assets.generation_job_id: %w", err)
-		}
-	}
-	if hasColumn(ctx, tx, "assets", "kind") {
-		if _, err := tx.ExecContext(ctx, `UPDATE assets SET source_type = kind WHERE source_type = ''`); err != nil {
-			return fmt.Errorf("backfill assets.source_type: %w", err)
-		}
-		if _, err := tx.ExecContext(ctx, `UPDATE assets SET rendered_type = kind WHERE rendered_type = ''`); err != nil {
-			return fmt.Errorf("backfill assets.rendered_type: %w", err)
-		}
-	}
-	if hasColumn(ctx, tx, "assets", "byte_size") {
-		if _, err := tx.ExecContext(ctx, `UPDATE assets SET size_bytes = byte_size WHERE size_bytes = 0`); err != nil {
-			return fmt.Errorf("backfill assets.size_bytes: %w", err)
-		}
-	}
-	if hasColumn(ctx, tx, "events", "type") {
-		if _, err := tx.ExecContext(ctx, `UPDATE events SET event_type = type WHERE event_type = ''`); err != nil {
-			return fmt.Errorf("backfill events.event_type: %w", err)
-		}
-	}
-	if hasColumn(ctx, tx, "events", "request_path") {
-		if _, err := tx.ExecContext(ctx, `UPDATE events SET path = request_path WHERE path = ''`); err != nil {
-			return fmt.Errorf("backfill events.path: %w", err)
-		}
-	}
-	if hasColumn(ctx, tx, "events", "remote_addr") {
-		if _, err := tx.ExecContext(ctx, `UPDATE events SET source_ip = remote_addr WHERE source_ip = ''`); err != nil {
-			return fmt.Errorf("backfill events.source_ip: %w", err)
-		}
-	}
-	if hasColumn(ctx, tx, "events", "referrer") {
-		if _, err := tx.ExecContext(ctx, `UPDATE events SET referer = referrer WHERE referer = ''`); err != nil {
-			return fmt.Errorf("backfill events.referer: %w", err)
-		}
-	}
-	if hasColumn(ctx, tx, "events", "occurred_at") {
-		if _, err := tx.ExecContext(ctx, `UPDATE events SET timestamp = occurred_at WHERE timestamp = '' OR timestamp IS NULL`); err != nil {
-			return fmt.Errorf("backfill events.timestamp from occurred_at: %w", err)
-		}
-	}
-	if hasColumn(ctx, tx, "events", "created_at") {
-		if _, err := tx.ExecContext(ctx, `UPDATE events SET timestamp = created_at WHERE timestamp = '' OR timestamp IS NULL`); err != nil {
-			return fmt.Errorf("backfill events.timestamp from created_at: %w", err)
-		}
-	}
-	if hasColumn(ctx, tx, "world_models", "prompt") {
-		if _, err := tx.ExecContext(ctx, `UPDATE world_models SET json_blob = '{}' WHERE json_blob = ''`); err != nil {
-			return fmt.Errorf("backfill world_models.json_blob: %w", err)
-		}
-	}
-	return nil
-}
-
-func hasColumn(ctx context.Context, tx *sql.Tx, table, column string) bool {
-	exists, err := columnExists(ctx, tx, table, column)
-	return err == nil && exists
 }
 
 func columnExists(ctx context.Context, tx *sql.Tx, table, column string) (bool, error) {

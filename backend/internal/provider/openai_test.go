@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/natet/honeygen/backend/internal/config"
 )
@@ -258,4 +259,90 @@ func TestOpenAIProviderGeneratePreservesProviderMetadata(t *testing.T) {
 	if response.Metadata["request_id"] != "req-123" {
 		t.Fatalf("response.Metadata[request_id] = %q, want %q", response.Metadata["request_id"], "req-123")
 	}
+}
+
+func TestOpenAIProviderTestUsesShortRequestTimeout(t *testing.T) {
+	t.Parallel()
+
+	transport := &timeoutCaptureRoundTripper{
+		t:            t,
+		responseBody: `{"data":[]}`,
+	}
+	client := &http.Client{Transport: transport}
+
+	provider := NewOpenAI(config.ProviderConfig{
+		BaseURL: "https://provider.example/v1",
+		APIKey:  "test-key",
+		Model:   "gpt-4.1-mini",
+	}, client)
+
+	if err := provider.Test(context.Background()); err != nil {
+		t.Fatalf("Test() error = %v", err)
+	}
+
+	timeout := transport.timeout()
+	if timeout < 10*time.Second || timeout > 20*time.Second {
+		t.Fatalf("request timeout = %v, want test timeout to stay short", timeout)
+	}
+}
+
+func TestOpenAIProviderGenerateUsesExtendedRequestTimeout(t *testing.T) {
+	t.Parallel()
+
+	transport := &timeoutCaptureRoundTripper{
+		t: t,
+		responseBody: `{
+			"model":"gpt-4.1-mini",
+			"choices":[{"message":{"content":"Generated memo"},"finish_reason":"stop"}],
+			"usage":{"prompt_tokens":11,"completion_tokens":7,"total_tokens":18}
+		}`,
+	}
+	client := &http.Client{Transport: transport}
+
+	provider := NewOpenAI(config.ProviderConfig{
+		BaseURL: "https://provider.example/v1",
+		APIKey:  "test-key",
+		Model:   "gpt-4.1-mini",
+	}, client)
+
+	if _, err := provider.Generate(context.Background(), GenerateRequest{
+		SystemPrompt: "Follow the policy.",
+		Prompt:       "Write a memo.",
+	}); err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	timeout := transport.timeout()
+	if timeout < 4*time.Minute {
+		t.Fatalf("request timeout = %v, want multi-minute generation timeout", timeout)
+	}
+}
+
+type timeoutCaptureRoundTripper struct {
+	t            *testing.T
+	responseBody string
+	deadline     time.Time
+	startedAt    time.Time
+}
+
+func (rt *timeoutCaptureRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	rt.startedAt = time.Now()
+	deadline, ok := req.Context().Deadline()
+	if !ok {
+		rt.t.Fatal("request context missing deadline")
+	}
+	rt.deadline = deadline
+
+	response := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(strings.NewReader(rt.responseBody)),
+		Request:    req,
+	}
+	response.Header.Set("Content-Type", "application/json")
+	return response, nil
+}
+
+func (rt *timeoutCaptureRoundTripper) timeout() time.Duration {
+	return rt.deadline.Sub(rt.startedAt)
 }

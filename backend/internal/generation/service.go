@@ -79,13 +79,7 @@ func (s *Service) Run(ctx context.Context, request RunRequest) (Job, error) {
 
 	summary := Summary{}
 	appendLog := func(level, message, path, category string) {
-		summary.Logs = append(summary.Logs, LogEntry{
-			Time:     time.Now().UTC(),
-			Level:    level,
-			Message:  message,
-			Path:     path,
-			Category: category,
-		})
+		appendSummaryLog(&summary, level, message, path, category)
 	}
 
 	worldModel, err := s.worldModels.Get(ctx, request.WorldModelID)
@@ -117,18 +111,27 @@ func (s *Service) Run(ctx context.Context, request RunRequest) (Job, error) {
 		return Job{}, err
 	}
 
+	go s.runJob(context.Background(), job.ID, request.WorldModelID, model, manifest, summary)
+
+	return job, nil
+}
+
+func (s *Service) runJob(ctx context.Context, jobID, worldModelID string, model worldmodels.WorldModel, manifest []ManifestEntry, summary Summary) {
+	appendLog := func(level, message, path, category string) {
+		appendSummaryLog(&summary, level, message, path, category)
+	}
+
 	for _, entry := range manifest {
 		appendLog("info", "generating asset", entry.Path, entry.Category)
-		job, err = s.jobs.UpdateSummary(ctx, job.ID, summary)
-		if err != nil {
-			return Job{}, err
+		if _, err := s.jobs.UpdateSummary(ctx, jobID, summary); err != nil {
+			return
 		}
 
 		response, err := s.provider.Generate(ctx, provider.GenerateRequest{
 			SystemPrompt: "Generate realistic enterprise decoy content. Follow the requested format exactly and keep the content coherent with the supplied world model.",
 			Prompt:       buildPrompt(model, entry),
 			Metadata: map[string]string{
-				"world_model_id": request.WorldModelID,
+				"world_model_id": worldModelID,
 				"path":           entry.Path,
 				"category":       entry.Category,
 				"rendered_type":  entry.RenderedType,
@@ -138,8 +141,8 @@ func (s *Service) Run(ctx context.Context, request RunRequest) (Job, error) {
 		if err != nil {
 			message := provider.SafeErrorMessage(err)
 			appendLog("error", "provider generation failed: "+message, entry.Path, entry.Category)
-			job, _ = s.jobs.SetFailed(ctx, job.ID, summary, message)
-			return job, err
+			_, _ = s.jobs.SetFailed(ctx, jobID, summary, message)
+			return
 		}
 
 		output, err := s.renderers.Render(ctx, entry.RenderedType, rendering.Document{
@@ -152,28 +155,28 @@ func (s *Service) Run(ctx context.Context, request RunRequest) (Job, error) {
 		})
 		if err != nil {
 			appendLog("error", "rendering failed: "+err.Error(), entry.Path, entry.Category)
-			job, _ = s.jobs.SetFailed(ctx, job.ID, summary, err.Error())
-			return job, err
+			_, _ = s.jobs.SetFailed(ctx, jobID, summary, err.Error())
+			return
 		}
 
-		storedPath, err := storage.JoinRelative("generated", request.WorldModelID, job.ID, entry.Path)
+		storedPath, err := storage.JoinRelative("generated", worldModelID, jobID, entry.Path)
 		if err != nil {
 			appendLog("error", "storage path invalid: "+err.Error(), entry.Path, entry.Category)
-			job, _ = s.jobs.SetFailed(ctx, job.ID, summary, err.Error())
-			return job, err
+			_, _ = s.jobs.SetFailed(ctx, jobID, summary, err.Error())
+			return
 		}
 
 		storedFile, err := s.storage.Write(ctx, storedPath, output.Bytes)
 		if err != nil {
 			appendLog("error", "storage write failed: "+err.Error(), entry.Path, entry.Category)
-			job, _ = s.jobs.SetFailed(ctx, job.ID, summary, err.Error())
-			return job, err
+			_, _ = s.jobs.SetFailed(ctx, jobID, summary, err.Error())
+			return
 		}
 
 		if _, err := s.assets.Create(ctx, assets.Asset{
 			ID:              newAssetID(),
-			GenerationJobID: job.ID,
-			WorldModelID:    request.WorldModelID,
+			GenerationJobID: jobID,
+			WorldModelID:    worldModelID,
 			SourceType:      entry.SourceType,
 			RenderedType:    entry.RenderedType,
 			Path:            storedFile.Path,
@@ -184,19 +187,28 @@ func (s *Service) Run(ctx context.Context, request RunRequest) (Job, error) {
 			Checksum:        storedFile.Checksum,
 		}); err != nil {
 			appendLog("error", "asset persistence failed: "+err.Error(), entry.Path, entry.Category)
-			job, _ = s.jobs.SetFailed(ctx, job.ID, summary, err.Error())
-			return job, err
+			_, _ = s.jobs.SetFailed(ctx, jobID, summary, err.Error())
+			return
 		}
 
 		summary.AssetCount++
 		appendLog("info", "asset stored", entry.Path, entry.Category)
+		if _, err := s.jobs.UpdateSummary(ctx, jobID, summary); err != nil {
+			return
+		}
 	}
 
-	job, err = s.jobs.SetCompleted(ctx, job.ID, summary)
-	if err != nil {
-		return Job{}, err
-	}
-	return job, nil
+	_, _ = s.jobs.SetCompleted(ctx, jobID, summary)
+}
+
+func appendSummaryLog(summary *Summary, level, message, path, category string) {
+	summary.Logs = append(summary.Logs, LogEntry{
+		Time:     time.Now().UTC(),
+		Level:    level,
+		Message:  message,
+		Path:     path,
+		Category: category,
+	})
 }
 
 func decodeWorldModel(jsonBlob string) (worldmodels.WorldModel, error) {

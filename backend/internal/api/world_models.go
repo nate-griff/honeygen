@@ -13,7 +13,10 @@ import (
 	"github.com/natet/honeygen/backend/internal/worldmodels"
 )
 
-const codeBlockFence = "```"
+const (
+	codeBlockFence            = "```"
+	worldModelGenerateTimeout = 5 * time.Minute
+)
 
 func worldModelsCollectionHandler(application *app.APIApp) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -186,7 +189,7 @@ func handleWorldModelGenerate(application *app.APIApp, w http.ResponseWriter, r 
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), worldModelGenerateTimeout)
 	defer cancel()
 
 	result, err := application.Provider.Generate(ctx, provider.GenerateRequest{

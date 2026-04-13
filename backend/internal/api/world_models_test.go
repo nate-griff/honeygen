@@ -1,13 +1,17 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/natet/honeygen/backend/internal/models"
+	"github.com/natet/honeygen/backend/internal/provider"
 	"github.com/natet/honeygen/backend/internal/worldmodels"
 )
 
@@ -205,6 +209,58 @@ func TestWriteWorldModelErrorReturnsConflictForAlreadyExists(t *testing.T) {
 		},
 	})
 }
+
+func TestWorldModelGenerateAllowsExtendedInferenceTimeout(t *testing.T) {
+	t.Parallel()
+
+	application := newTestAPIApp(t)
+	application.Provider = minimumDeadlineProvider{minimumRemaining: 2 * time.Minute}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/world-models/generate", strings.NewReader(`{"description":"Generate a plausible financial-services organization."}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	NewRouter(application).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status code = %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	var response struct {
+		Generated bool            `json:"generated"`
+		Payload   json.RawMessage `json:"payload"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if !response.Generated {
+		t.Fatalf("generated = %v, want true", response.Generated)
+	}
+	if string(response.Payload) != "{}" {
+		t.Fatalf("payload = %s, want {}", response.Payload)
+	}
+}
+
+type minimumDeadlineProvider struct {
+	minimumRemaining time.Duration
+}
+
+func (p minimumDeadlineProvider) Generate(ctx context.Context, _ provider.GenerateRequest) (provider.GenerateResponse, error) {
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		return provider.GenerateResponse{}, &provider.Error{Kind: provider.KindConnectivity, Message: "missing request deadline"}
+	}
+	if remaining := time.Until(deadline); remaining < p.minimumRemaining {
+		return provider.GenerateResponse{}, &provider.Error{
+			Kind:    provider.KindConnectivity,
+			Message: fmt.Sprintf("request deadline too short: %s", remaining),
+		}
+	}
+
+	return provider.GenerateResponse{Content: "{}"}, nil
+}
+
+func (minimumDeadlineProvider) Test(context.Context) error { return nil }
 
 func assertBrandingColorsEmptyArray(t *testing.T, body []byte) {
 	t.Helper()

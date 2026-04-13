@@ -14,7 +14,10 @@ import (
 	"github.com/natet/honeygen/backend/internal/config"
 )
 
-const defaultTimeout = 15 * time.Second
+const (
+	defaultTestTimeout     = 15 * time.Second
+	defaultGenerateTimeout = 5 * time.Minute
+)
 
 type OpenAIProvider struct {
 	baseURL    string
@@ -25,7 +28,7 @@ type OpenAIProvider struct {
 
 func NewOpenAI(cfg config.ProviderConfig, client *http.Client) *OpenAIProvider {
 	if client == nil {
-		client = &http.Client{Timeout: defaultTimeout}
+		client = &http.Client{}
 	}
 
 	return &OpenAIProvider{
@@ -40,6 +43,9 @@ func (p *OpenAIProvider) Test(ctx context.Context) error {
 	if err := p.validateConfig(); err != nil {
 		return err
 	}
+
+	ctx, cancel := context.WithTimeout(ctx, defaultTestTimeout)
+	defer cancel()
 
 	req, err := p.newRequest(ctx, http.MethodGet, "/models", nil)
 	if err != nil {
@@ -63,6 +69,9 @@ func (p *OpenAIProvider) Generate(ctx context.Context, request GenerateRequest) 
 	if err := p.validateConfig(); err != nil {
 		return GenerateResponse{}, err
 	}
+
+	ctx, cancel := context.WithTimeout(ctx, defaultGenerateTimeout)
+	defer cancel()
 
 	payload := struct {
 		Model    string `json:"model"`

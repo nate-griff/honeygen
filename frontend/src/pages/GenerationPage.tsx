@@ -76,6 +76,7 @@ export default function GenerationPage() {
       }
     };
 
+    void pollJobs();
     const interval = window.setInterval(async () => {
       await pollJobs();
     }, 5000);
@@ -96,8 +97,7 @@ export default function GenerationPage() {
     setPollError(undefined);
     try {
       const createdJob = await runGeneration(selectedWorldModelID);
-      const nextJobs = await listGenerationJobs({ world_model_id: selectedWorldModelID, limit: 10 });
-      setJobs(nextJobs.some((job) => job.id === createdJob.id) ? nextJobs : [createdJob, ...nextJobs]);
+      setJobs((currentJobs) => [createdJob, ...currentJobs.filter((job) => job.id !== createdJob.id)]);
       setPollError(undefined);
     } catch (error) {
       setRunError(error instanceof Error ? error.message : "Unable to run generation");

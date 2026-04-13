@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/natet/honeygen/backend/internal/assets"
 	appdb "github.com/natet/honeygen/backend/internal/db"
@@ -43,20 +44,20 @@ func TestServiceRunPersistsJobsAssetsAndFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
-	if job.Status != StatusCompleted {
-		t.Fatalf("job.Status = %q, want %q", job.Status, StatusCompleted)
+	if job.Status != StatusRunning {
+		t.Fatalf("job.Status = %q, want %q", job.Status, StatusRunning)
 	}
-	if job.CompletedAt == nil {
-		t.Fatal("job.CompletedAt is nil")
+	if job.CompletedAt != nil {
+		t.Fatalf("job.CompletedAt = %v, want nil before background work finishes", job.CompletedAt)
+	}
+	if job.StartedAt == nil {
+		t.Fatal("job.StartedAt is nil")
 	}
 	if len(job.Summary.Logs) == 0 {
 		t.Fatal("job.Summary.Logs is empty")
 	}
 
-	storedJob, err := NewJobStore(database).Get(context.Background(), job.ID)
-	if err != nil {
-		t.Fatalf("Get() job error = %v", err)
-	}
+	storedJob := waitForJobStatus(t, NewJobStore(database), job.ID, StatusCompleted)
 	if storedJob.Status != StatusCompleted {
 		t.Fatalf("storedJob.Status = %q, want %q", storedJob.Status, StatusCompleted)
 	}
@@ -125,23 +126,84 @@ func TestServiceRunMarksJobFailedWhenProviderErrors(t *testing.T) {
 	})
 
 	job, err := service.Run(context.Background(), RunRequest{WorldModelID: "world-1"})
-	if err == nil {
-		t.Fatal("Run() error = nil, want provider failure")
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
 	}
-	if job.Status != StatusFailed {
-		t.Fatalf("job.Status = %q, want %q", job.Status, StatusFailed)
+	if job.Status != StatusRunning {
+		t.Fatalf("job.Status = %q, want %q", job.Status, StatusRunning)
 	}
-	if !strings.Contains(job.ErrorMessage, "provider request failed") {
-		t.Fatalf("job.ErrorMessage = %q, want provider failure", job.ErrorMessage)
+
+	failedJob := waitForJobStatus(t, NewJobStore(database), job.ID, StatusFailed)
+	if failedJob.Status != StatusFailed {
+		t.Fatalf("failedJob.Status = %q, want %q", failedJob.Status, StatusFailed)
+	}
+	if !strings.Contains(failedJob.ErrorMessage, "provider request failed") {
+		t.Fatalf("failedJob.ErrorMessage = %q, want provider failure", failedJob.ErrorMessage)
+	}
+}
+
+func TestServiceRunReturnsBeforeBackgroundGenerationCompletes(t *testing.T) {
+	t.Parallel()
+
+	database := newGenerationTestDatabase(t)
+	repo := worldmodels.NewRepository(database)
+	if _, err := repo.Create(context.Background(), StoredWorldModelForTest("world-1")); err != nil {
+		t.Fatalf("Create() world model error = %v", err)
+	}
+
+	provider := blockingGenerationProvider{
+		started: make(chan struct{}, 1),
+		release: make(chan struct{}),
+	}
+	service := NewService(ServiceConfig{
+		WorldModels: repo,
+		Planner:     NewPlanner(),
+		Provider:    provider,
+		Jobs:        NewJobStore(database),
+		Assets:      assets.NewRepository(database),
+		Storage:     storage.NewFilesystem(t.TempDir()),
+		Renderers: rendering.NewRegistry(rendering.RegistryConfig{
+			PDF: rendering.StaticPDFRenderer([]byte("%PDF-1.4\n%stub\n")),
+		}),
+	})
+
+	job, err := service.Run(context.Background(), RunRequest{WorldModelID: "world-1"})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if job.Status != StatusRunning {
+		t.Fatalf("job.Status = %q, want %q", job.Status, StatusRunning)
+	}
+
+	select {
+	case <-provider.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("background generation did not start")
+	}
+
+	storedJob, err := NewJobStore(database).Get(context.Background(), job.ID)
+	if err != nil {
+		t.Fatalf("Get() job error = %v", err)
+	}
+	if storedJob.Status != StatusRunning {
+		t.Fatalf("storedJob.Status = %q, want %q while provider is blocked", storedJob.Status, StatusRunning)
+	}
+
+	close(provider.release)
+
+	completedJob := waitForJobStatus(t, NewJobStore(database), job.ID, StatusCompleted)
+	if completedJob.CompletedAt == nil {
+		t.Fatal("completedJob.CompletedAt is nil")
 	}
 }
 
 func newGenerationTestDatabase(t *testing.T) *sql.DB {
 	t.Helper()
 
-	database, err := sql.Open("sqlite", ":memory:")
+	databasePath := filepath.Join(t.TempDir(), "generation-test.db")
+	database, err := appdb.OpenSQLite(context.Background(), databasePath)
 	if err != nil {
-		t.Fatalf("sql.Open() error = %v", err)
+		t.Fatalf("OpenSQLite() error = %v", err)
 	}
 	t.Cleanup(func() {
 		_ = database.Close()
@@ -216,3 +278,41 @@ func (failingGenerationProvider) Generate(context.Context, provider.GenerateRequ
 }
 
 func (failingGenerationProvider) Test(context.Context) error { return nil }
+
+type blockingGenerationProvider struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (p blockingGenerationProvider) Generate(_ context.Context, request provider.GenerateRequest) (provider.GenerateResponse, error) {
+	select {
+	case p.started <- struct{}{}:
+	default:
+	}
+
+	<-p.release
+
+	return generationStubProvider{}.Generate(context.Background(), request)
+}
+
+func (blockingGenerationProvider) Test(context.Context) error { return nil }
+
+func waitForJobStatus(t *testing.T, store *JobStore, jobID, wantStatus string) Job {
+	t.Helper()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		job, err := store.Get(context.Background(), jobID)
+		if err == nil && job.Status == wantStatus {
+			return job
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	job, err := store.Get(context.Background(), jobID)
+	if err != nil {
+		t.Fatalf("Get() job error = %v", err)
+	}
+	t.Fatalf("job.Status = %q, want %q", job.Status, wantStatus)
+	return Job{}
+}

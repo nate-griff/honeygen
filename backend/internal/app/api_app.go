@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -25,6 +26,7 @@ type APIApp struct {
 	Logger        *slog.Logger
 	DB            *sql.DB
 	StatusQueries appdb.StatusSummaryReader
+	Settings      *appdb.SettingsStore
 	WorldModels   *worldmodels.Service
 	Provider      provider.Provider
 	AssetRepo     *assets.Repository
@@ -71,13 +73,31 @@ func NewAPIApp(ctx context.Context, cfg config.Config, logger *slog.Logger) (*AP
 	assetRepo := assets.NewRepository(database)
 	eventRepo := events.NewRepository(database)
 	jobStore := generation.NewJobStore(database)
+	settingsStore := appdb.NewSettingsStore(database)
 	filesystem := storage.NewFilesystem(cfg.StorageRoot)
+
+	// Load saved provider settings (overlay on top of env/config file values)
+	savedProvider, err := loadSavedProviderConfig(ctx, settingsStore)
+	if err != nil {
+		logger.Warn("load saved provider settings", "error", err)
+	} else if savedProvider != nil {
+		if savedProvider.BaseURL != "" {
+			cfg.Provider.BaseURL = savedProvider.BaseURL
+		}
+		if savedProvider.APIKey != "" {
+			cfg.Provider.APIKey = savedProvider.APIKey
+		}
+		if savedProvider.Model != "" {
+			cfg.Provider.Model = savedProvider.Model
+		}
+	}
 
 	return &APIApp{
 		Config:        cfg,
 		Logger:        logger,
 		DB:            database,
 		StatusQueries: appdb.NewStatusQueries(database),
+		Settings:      settingsStore,
 		WorldModels:   worldModelService,
 		Provider:      provider.NewOpenAI(cfg.Provider, nil),
 		AssetRepo:     assetRepo,
@@ -88,6 +108,11 @@ func NewAPIApp(ctx context.Context, cfg config.Config, logger *slog.Logger) (*AP
 		Storage:       filesystem,
 		Renderers:     rendering.NewRegistry(rendering.RegistryConfig{}),
 	}, nil
+}
+
+func (a *APIApp) UpdateProvider(cfg config.ProviderConfig) {
+	a.Config.Provider = cfg
+	a.Provider = provider.NewOpenAI(cfg, nil)
 }
 
 func (a *APIApp) GenerationService() *generation.Service {
@@ -159,4 +184,19 @@ func (a *APIApp) Status(ctx context.Context) (models.StatusResponse, error) {
 
 func (a *APIApp) databaseReady(ctx context.Context) bool {
 	return a != nil && a.DB != nil && a.DB.PingContext(ctx) == nil
+}
+
+func loadSavedProviderConfig(ctx context.Context, store *appdb.SettingsStore) (*config.ProviderConfig, error) {
+	raw, err := store.Get(ctx, "provider")
+	if err != nil {
+		return nil, err
+	}
+	if raw == nil {
+		return nil, nil
+	}
+	var cfg config.ProviderConfig
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		return nil, fmt.Errorf("decode saved provider config: %w", err)
+	}
+	return &cfg, nil
 }

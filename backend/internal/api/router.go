@@ -25,6 +25,7 @@ func NewRouter(application *app.APIApp) http.Handler {
 	mux.HandleFunc("/internal/events", allowMethod(http.MethodPost, internalEventsHandler(application)))
 	mux.HandleFunc("/api/world-models", worldModelsCollectionHandler(application))
 	mux.HandleFunc("/api/world-models/", worldModelItemHandler(application))
+	mux.HandleFunc("/api/settings/provider", settingsProviderHandler(application))
 	mux.HandleFunc("/api/", apiNotFoundHandler)
 	return mux
 }

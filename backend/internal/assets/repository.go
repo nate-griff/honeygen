@@ -142,7 +142,7 @@ func (r *Repository) List(ctx context.Context, options ListOptions) ([]Asset, er
 	}
 	defer rows.Close()
 
-	var items []Asset
+	items := []Asset{}
 	for rows.Next() {
 		asset, err := scanAsset(rows)
 		if err != nil {

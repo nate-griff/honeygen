@@ -54,6 +54,7 @@ func run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	}
 
 	logger.Info("api listening", "addr", listener.Addr().String(), "sqlite_path", cfg.SQLitePath, "storage_root", cfg.StorageRoot)
+	logger.Info("provider config", "ready", cfg.Provider.Ready(), "mode", cfg.Provider.Mode(), "base_url", cfg.Provider.BaseURL, "model", cfg.Provider.Model)
 
 	serverErr := make(chan error, 1)
 	go func() {

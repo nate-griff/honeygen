@@ -120,7 +120,7 @@ func (s *JobStore) List(ctx context.Context, options ListOptions) ([]Job, error)
 	}
 	defer rows.Close()
 
-	var jobs []Job
+	jobs := []Job{}
 	for rows.Next() {
 		job, err := scanJob(rows)
 		if err != nil {

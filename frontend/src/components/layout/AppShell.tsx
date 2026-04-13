@@ -6,6 +6,7 @@ const navItems = [
   { to: "/generation", label: "Generation" },
   { to: "/files", label: "File Browser" },
   { to: "/events", label: "Event Log" },
+  { to: "/settings", label: "Settings" },
 ];
 
 export function AppShell() {

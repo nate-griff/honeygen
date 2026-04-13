@@ -2,13 +2,18 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/natet/honeygen/backend/internal/app"
+	"github.com/natet/honeygen/backend/internal/provider"
 	"github.com/natet/honeygen/backend/internal/worldmodels"
 )
+
+const codeBlockFence = "```"
 
 func worldModelsCollectionHandler(application *app.APIApp) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -153,4 +158,111 @@ func writeWorldModelError(application *app.APIApp, w http.ResponseWriter, action
 
 func writeValidationFailure(w http.ResponseWriter, err error) {
 	writeError(w, http.StatusBadRequest, "validation_error", err.Error())
+}
+
+func worldModelGenerateHandler(application *app.APIApp) http.HandlerFunc {
+	return allowMethod(http.MethodPost, func(w http.ResponseWriter, r *http.Request) {
+		handleWorldModelGenerate(application, w, r)
+	})
+}
+
+func handleWorldModelGenerate(application *app.APIApp, w http.ResponseWriter, r *http.Request) {
+	body, err := readJSONBody(w, r)
+	if err != nil {
+		writeValidationFailure(w, err)
+		return
+	}
+
+	var request struct {
+		Description string `json:"description"`
+	}
+	if err := json.Unmarshal(body, &request); err != nil {
+		writeValidationFailure(w, requestValidationError{message: "request body must be a JSON object"})
+		return
+	}
+	request.Description = strings.TrimSpace(request.Description)
+	if request.Description == "" {
+		writeValidationFailure(w, requestValidationError{message: "description is required"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	defer cancel()
+
+	result, err := application.Provider.Generate(ctx, provider.GenerateRequest{
+		SystemPrompt: worldModelSystemPrompt(),
+		Prompt:       request.Description,
+		Metadata:     map[string]string{"task": "world_model_generation"},
+	})
+	if err != nil {
+		writeProviderError(application, w, err)
+		return
+	}
+
+	jsonContent := extractJSON(result.Content)
+
+	if !json.Valid([]byte(jsonContent)) {
+		application.Logger.Warn("world model generation returned invalid JSON", "content_length", len(result.Content))
+		writeError(w, http.StatusBadGateway, "generation_invalid", "the LLM returned content that is not valid JSON — try again or rephrase the description")
+		return
+	}
+
+	var payload json.RawMessage = json.RawMessage(jsonContent)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"generated": true,
+		"payload":   payload,
+	})
+}
+
+func worldModelSystemPrompt() string {
+	return `You are a world model generator for Honeygen, a honeypot content generation system.
+Given a natural language description, generate a complete world model as a JSON object.
+
+The JSON must follow this exact schema:
+{
+  "organization": {
+    "name": "string (required)",
+    "description": "string (optional)",
+    "industry": "string (required)",
+    "size": "string (required, e.g. small, mid-size, large, enterprise)",
+    "region": "string (required, e.g. United States, Europe, Asia-Pacific)",
+    "domain_theme": "string (required, a plausible internal domain like companyname.local)"
+  },
+  "branding": {
+    "tone": "string (required, e.g. formal, casual, technical)",
+    "colors": ["string array of hex colors, at least 2"]
+  },
+  "departments": ["string array, 3-8 department names"],
+  "employees": [
+    {"name": "string", "role": "string", "department": "string (must match a department)"}
+  ],
+  "projects": ["string array, 2-6 project names"],
+  "document_themes": ["string array, 3-7 themes like budgets, policies, roadmaps"]
+}
+
+Rules:
+- Generate 5-12 employees across the departments
+- Every employee's department must appear in the departments array
+- Use realistic, diverse names
+- The domain_theme should be a plausible .local or .internal domain
+- Return ONLY the JSON object, no markdown, no explanation, no code fences`
+}
+
+func extractJSON(content string) string {
+	trimmed := strings.TrimSpace(content)
+	if strings.HasPrefix(trimmed, codeBlockFence) {
+		if idx := strings.Index(trimmed, "\n"); idx >= 0 {
+			trimmed = trimmed[idx+1:]
+		}
+		if idx := strings.LastIndex(trimmed, codeBlockFence); idx >= 0 {
+			trimmed = trimmed[:idx]
+		}
+		trimmed = strings.TrimSpace(trimmed)
+	}
+	start := strings.Index(trimmed, "{")
+	end := strings.LastIndex(trimmed, "}")
+	if start >= 0 && end > start {
+		return trimmed[start : end+1]
+	}
+	return trimmed
 }

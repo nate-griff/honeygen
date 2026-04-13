@@ -23,6 +23,7 @@ func NewRouter(application *app.APIApp) http.Handler {
 	mux.HandleFunc("/api/events", allowMethod(http.MethodGet, eventsListHandler(application)))
 	mux.HandleFunc("/api/events/", allowMethod(http.MethodGet, eventsItemHandler(application)))
 	mux.HandleFunc("/internal/events", allowMethod(http.MethodPost, internalEventsHandler(application)))
+	mux.HandleFunc("/api/world-models/generate", worldModelGenerateHandler(application))
 	mux.HandleFunc("/api/world-models", worldModelsCollectionHandler(application))
 	mux.HandleFunc("/api/world-models/", worldModelItemHandler(application))
 	mux.HandleFunc("/api/settings/provider", settingsProviderHandler(application))

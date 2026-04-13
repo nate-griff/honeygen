@@ -6,7 +6,7 @@ export async function listAssetTree(filters: {
   generation_job_id?: string;
 } = {}): Promise<AssetTreeNode[]> {
   const response = await apiRequest<{ items: AssetTreeNode[] }>(`/api/assets/tree${buildQuery(filters)}`);
-  return response.items;
+  return response.items ?? [];
 }
 
 export function getAsset(id: string): Promise<Asset> {

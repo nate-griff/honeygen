@@ -6,6 +6,7 @@ import EventLogPage, { eventLogLoader } from "../pages/EventLogPage";
 import FileBrowserPage, { fileBrowserLoader } from "../pages/FileBrowserPage";
 import GenerationPage, { generationLoader } from "../pages/GenerationPage";
 import WorldModelsPage, { worldModelsLoader } from "../pages/WorldModelsPage";
+import SettingsPage, { settingsLoader } from "../pages/SettingsPage";
 
 export const router = createBrowserRouter([
   {
@@ -37,6 +38,11 @@ export const router = createBrowserRouter([
         path: "events",
         loader: eventLogLoader,
         element: <EventLogPage />,
+      },
+      {
+        path: "settings",
+        loader: settingsLoader,
+        element: <SettingsPage />,
       },
     ],
   },

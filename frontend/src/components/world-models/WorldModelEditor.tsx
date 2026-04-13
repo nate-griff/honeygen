@@ -4,6 +4,7 @@ import type { WorldModelDetails, WorldModelPayload } from "../../types/worldMode
 
 interface WorldModelEditorProps {
   model: WorldModelDetails | null;
+  initialPayload?: WorldModelPayload;
   isSubmitting: boolean;
   submitError?: string;
   submitSuccess?: string;
@@ -25,20 +26,20 @@ interface WorldModelDraft {
   documentThemes: string;
 }
 
-function createDraft(model: WorldModelDetails | null): WorldModelDraft {
+function createDraft(source: WorldModelPayload | null): WorldModelDraft {
   return {
-    organizationName: model?.organization.name ?? "",
-    organizationDescription: model?.organization.description ?? "",
-    organizationIndustry: model?.organization.industry ?? "",
-    organizationSize: model?.organization.size ?? "",
-    organizationRegion: model?.organization.region ?? "",
-    organizationDomainTheme: model?.organization.domain_theme ?? "",
-    brandingTone: model?.branding.tone ?? "",
-    brandingColors: (model?.branding.colors ?? []).join(", "),
-    departments: (model?.departments ?? []).join("\n"),
-    employees: (model?.employees ?? []).map((employee) => `${employee.name} | ${employee.role} | ${employee.department}`).join("\n"),
-    projects: (model?.projects ?? []).join("\n"),
-    documentThemes: (model?.document_themes ?? []).join("\n"),
+    organizationName: source?.organization.name ?? "",
+    organizationDescription: source?.organization.description ?? "",
+    organizationIndustry: source?.organization.industry ?? "",
+    organizationSize: source?.organization.size ?? "",
+    organizationRegion: source?.organization.region ?? "",
+    organizationDomainTheme: source?.organization.domain_theme ?? "",
+    brandingTone: source?.branding.tone ?? "",
+    brandingColors: (source?.branding.colors ?? []).join(", "),
+    departments: (source?.departments ?? []).join("\n"),
+    employees: (source?.employees ?? []).map((employee) => `${employee.name} | ${employee.role} | ${employee.department}`).join("\n"),
+    projects: (source?.projects ?? []).join("\n"),
+    documentThemes: (source?.document_themes ?? []).join("\n"),
   };
 }
 
@@ -63,16 +64,18 @@ function employeesToList(value: string): WorldModelPayload["employees"] {
 
 export function WorldModelEditor({
   model,
+  initialPayload,
   isSubmitting,
   submitError,
   submitSuccess,
   onSubmit,
 }: WorldModelEditorProps) {
-  const [draft, setDraft] = useState<WorldModelDraft>(() => createDraft(model));
+  const source = model ?? initialPayload ?? null;
+  const [draft, setDraft] = useState<WorldModelDraft>(() => createDraft(source));
 
   useEffect(() => {
-    setDraft(createDraft(model));
-  }, [model]);
+    setDraft(createDraft(source));
+  }, [model, initialPayload]);
 
   const modeLabel = model ? "Update world model" : "Create world model";
   const helperText = useMemo(

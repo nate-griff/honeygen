@@ -3,7 +3,7 @@ import type { WorldModelDetails, WorldModelPayload, WorldModelSummary } from "..
 
 export async function listWorldModels(): Promise<WorldModelSummary[]> {
   const response = await apiRequest<{ items: WorldModelSummary[] }>("/api/world-models");
-  return response.items;
+  return response.items ?? [];
 }
 
 export function getWorldModel(id: string): Promise<WorldModelDetails> {
@@ -21,5 +21,12 @@ export function updateWorldModel(id: string, payload: WorldModelPayload): Promis
   return apiRequest<WorldModelDetails>(`/api/world-models/${id}`, {
     method: "PUT",
     body: JSON.stringify(payload),
+  });
+}
+
+export function generateWorldModel(description: string): Promise<{ generated: boolean; payload: WorldModelPayload }> {
+  return apiRequest<{ generated: boolean; payload: WorldModelPayload }>("/api/world-models/generate", {
+    method: "POST",
+    body: JSON.stringify({ description }),
   });
 }

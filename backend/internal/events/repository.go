@@ -139,7 +139,7 @@ func (r *Repository) List(ctx context.Context, options ListOptions) ([]Event, er
 	}
 	defer rows.Close()
 
-	var items []Event
+	items := []Event{}
 	for rows.Next() {
 		event, err := scanEvent(rows)
 		if err != nil {

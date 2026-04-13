@@ -16,7 +16,7 @@ export async function listGenerationJobs(filters: {
   const response = await apiRequest<{ items: GenerationJob[] }>(
     `/api/generation/jobs${buildQuery(filters)}`,
   );
-  return response.items;
+  return response.items ?? [];
 }
 
 export function getGenerationJob(id: string): Promise<GenerationJob> {

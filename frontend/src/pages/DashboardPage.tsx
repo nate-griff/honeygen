@@ -1,3 +1,4 @@
+import { useCallback, useEffect, useState } from "react";
 import { Link, useLoaderData } from "react-router-dom";
 import { getStatus } from "../api/status";
 import { formatCount, formatDateTime } from "../app/format";
@@ -6,6 +7,8 @@ import { PageHeader } from "../components/layout/PageHeader";
 import { Panel } from "../components/layout/Panel";
 import { StatusBadge } from "../components/layout/StatusBadge";
 import type { StatusResponse } from "../types/status";
+
+const POLL_INTERVAL_MS = 5_000;
 
 interface DashboardLoaderData {
   status: StatusResponse;
@@ -17,14 +20,39 @@ export async function dashboardLoader(): Promise<DashboardLoaderData> {
 }
 
 export default function DashboardPage() {
-  const { status } = useLoaderData() as DashboardLoaderData;
-  const recentEvents = status.recent_events;
+  const loaderData = useLoaderData() as DashboardLoaderData;
+
+  const [status, setStatus] = useState<StatusResponse>(loaderData.status);
+  const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
+
+  useEffect(() => {
+    setStatus(loaderData.status);
+    setLastRefresh(new Date());
+  }, [loaderData]);
+
+  const refresh = useCallback(async () => {
+    try {
+      const next = await getStatus();
+      setStatus(next);
+      setLastRefresh(new Date());
+    } catch {
+      // Silently skip failed polls; stale data stays visible
+    }
+  }, []);
+
+  useEffect(() => {
+    const id = setInterval(refresh, POLL_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, [refresh]);
+
+  const recentEvents = status.recent_events ?? [];
 
   return (
     <div className="stack">
       <PageHeader
         title="Dashboard"
         description="Monitor system readiness, generated content volume, latest jobs, and recent live events."
+        actions={<small className="muted">Auto-refresh · {lastRefresh.toLocaleTimeString()}</small>}
       />
       <section className="stats-grid">
         <Panel>

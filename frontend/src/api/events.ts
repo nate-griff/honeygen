@@ -10,7 +10,7 @@ export async function listEvents(filters: {
   status_code?: number;
 } = {}): Promise<EventRecord[]> {
   const response = await apiRequest<{ items: EventRecord[] }>(`/api/events${buildQuery(filters)}`);
-  return response.items;
+  return response.items ?? [];
 }
 
 export function getEvent(id: string): Promise<EventRecord> {

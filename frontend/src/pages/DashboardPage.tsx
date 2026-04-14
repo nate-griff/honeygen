@@ -94,9 +94,9 @@ export default function DashboardPage() {
                 <StatusBadge value={status.latest_job.status} />
               </div>
               <dl className="detail-grid detail-grid--compact">
-                <div>
+                <div className="truncate-cell">
                   <dt>World model</dt>
-                  <dd>{status.latest_job.world_model_id}</dd>
+                  <dd className="truncate">{status.latest_job.world_model_id}</dd>
                 </div>
                 <div>
                   <dt>Assets</dt>

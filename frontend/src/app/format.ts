@@ -1,6 +1,6 @@
 const dateFormatter = new Intl.DateTimeFormat(undefined, {
   dateStyle: "medium",
-  timeStyle: "short",
+  timeStyle: "medium",
 });
 
 export function formatDateTime(value?: string | null): string {

@@ -52,6 +52,8 @@ type RegistryConfig struct {
 	CSV      Renderer
 	Text     Renderer
 	PDF      Renderer
+	DOCX     Renderer
+	XLSX     Renderer
 }
 
 type Registry struct {
@@ -60,6 +62,8 @@ type Registry struct {
 	csv      Renderer
 	text     Renderer
 	pdf      Renderer
+	docx     Renderer
+	xlsx     Renderer
 }
 
 func NewRegistry(config RegistryConfig) Registry {
@@ -69,6 +73,8 @@ func NewRegistry(config RegistryConfig) Registry {
 		csv:      config.CSV,
 		text:     config.Text,
 		pdf:      config.PDF,
+		docx:     config.DOCX,
+		xlsx:     config.XLSX,
 	}
 	if registry.markdown == nil {
 		registry.markdown = MarkdownRenderer{}
@@ -85,6 +91,12 @@ func NewRegistry(config RegistryConfig) Registry {
 	if registry.pdf == nil {
 		registry.pdf = WKHTMLToPDFRenderer{HTML: registry.html, Command: "wkhtmltopdf"}
 	}
+	if registry.docx == nil {
+		registry.docx = DOCXRenderer{}
+	}
+	if registry.xlsx == nil {
+		registry.xlsx = XLSXRenderer{}
+	}
 	return registry
 }
 
@@ -100,6 +112,10 @@ func (r Registry) Render(ctx context.Context, renderedType string, document Docu
 		return r.text.Render(ctx, document)
 	case "pdf":
 		return r.pdf.Render(ctx, document)
+	case "docx":
+		return r.docx.Render(ctx, document)
+	case "xlsx":
+		return r.xlsx.Render(ctx, document)
 	default:
 		return Output{}, ErrUnknownRenderedType(renderedType)
 	}

@@ -61,11 +61,17 @@ type Employee struct {
 	Department string `json:"department"`
 }
 
+type GenerationSettings struct {
+	FileCountTarget   int `json:"file_count_target"`
+	FileCountVariance int `json:"file_count_variance"`
+}
+
 type WorldModel struct {
-	Organization   Organization `json:"organization"`
-	Branding       Branding     `json:"branding"`
-	Departments    []string     `json:"departments"`
-	Employees      []Employee   `json:"employees"`
-	Projects       []string     `json:"projects"`
-	DocumentThemes []string     `json:"document_themes"`
+	Organization       Organization       `json:"organization"`
+	Branding           Branding           `json:"branding"`
+	Departments        []string           `json:"departments"`
+	Employees          []Employee         `json:"employees"`
+	Projects           []string           `json:"projects"`
+	DocumentThemes     []string           `json:"document_themes"`
+	GenerationSettings GenerationSettings `json:"generation_settings,omitempty"`
 }

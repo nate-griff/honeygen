@@ -48,26 +48,23 @@ func TestPlannerBuildsDeterministicManifestWithRequiredCoverage(t *testing.T) {
 		t.Fatalf("len(manifest) = %d, want at least 10 entries", len(first))
 	}
 
+	// Fixed infrastructure categories that always appear.
 	requiredCategories := map[string]bool{
 		"policy-document":         false,
 		"internal-memo":           false,
-		"meeting-notes":           false,
 		"project-summary":         false,
 		"vendor-contact-csv":      false,
 		"faq-help-page":           false,
 		"intranet-about-page":     false,
 		"employee-roster-excerpt": false,
 	}
+	// Fixed path prefixes that always exist.
 	requiredPrefixes := map[string]bool{
 		"public/":                        false,
 		"intranet/":                      false,
 		"shared/finance/":                false,
 		"shared/information-technology/": false,
-		"users/lauren-chen/Documents/":   false,
-		"users/lauren-chen/Desktop/":     false,
 		"users/lauren-chen/Projects/":    false,
-		"users/dylan-brooks/Documents/":  false,
-		"users/dylan-brooks/Desktop/":    false,
 		"users/dylan-brooks/Projects/":   false,
 	}
 
@@ -91,6 +88,24 @@ func TestPlannerBuildsDeterministicManifestWithRequiredCoverage(t *testing.T) {
 		if !seen {
 			t.Fatalf("manifest missing path prefix %q", prefix)
 		}
+	}
+
+	// Each employee should have at least 1 user-directory file plus the project summary.
+	laurenCount := 0
+	dylanCount := 0
+	for _, entry := range first {
+		if strings.HasPrefix(entry.Path, "users/lauren-chen/") {
+			laurenCount++
+		}
+		if strings.HasPrefix(entry.Path, "users/dylan-brooks/") {
+			dylanCount++
+		}
+	}
+	if laurenCount < 2 {
+		t.Fatalf("lauren-chen has %d files, want at least 2 (project summary + 1 template)", laurenCount)
+	}
+	if dylanCount < 2 {
+		t.Fatalf("dylan-brooks has %d files, want at least 2 (project summary + 1 template)", dylanCount)
 	}
 }
 

@@ -2,6 +2,7 @@ import { createBrowserRouter } from "react-router-dom";
 import { AppShell } from "../components/layout/AppShell";
 import { RouteErrorBoundary } from "../components/layout/RouteErrorBoundary";
 import DashboardPage, { dashboardLoader } from "../pages/DashboardPage";
+import DeploymentsPage, { deploymentsLoader } from "../pages/DeploymentsPage";
 import EventLogPage, { eventLogLoader } from "../pages/EventLogPage";
 import FileBrowserPage, { fileBrowserLoader } from "../pages/FileBrowserPage";
 import GenerationPage, { generationLoader } from "../pages/GenerationPage";
@@ -38,6 +39,11 @@ export const router = createBrowserRouter([
         path: "events",
         loader: eventLogLoader,
         element: <EventLogPage />,
+      },
+      {
+        path: "deployments",
+        loader: deploymentsLoader,
+        element: <DeploymentsPage />,
       },
       {
         path: "settings",

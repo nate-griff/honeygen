@@ -24,6 +24,8 @@ interface WorldModelDraft {
   employees: string;
   projects: string;
   documentThemes: string;
+  fileCountTarget: string;
+  fileCountVariance: string;
 }
 
 function createDraft(source: WorldModelPayload | null): WorldModelDraft {
@@ -40,6 +42,8 @@ function createDraft(source: WorldModelPayload | null): WorldModelDraft {
     employees: (source?.employees ?? []).map((employee) => `${employee.name} | ${employee.role} | ${employee.department}`).join("\n"),
     projects: (source?.projects ?? []).join("\n"),
     documentThemes: (source?.document_themes ?? []).join("\n"),
+    fileCountTarget: String(source?.generation_settings?.file_count_target ?? 5),
+    fileCountVariance: String(source?.generation_settings?.file_count_variance ?? 2),
   };
 }
 
@@ -105,6 +109,10 @@ export function WorldModelEditor({
       employees: employeesToList(draft.employees),
       projects: linesToList(draft.projects),
       document_themes: linesToList(draft.documentThemes),
+      generation_settings: {
+        file_count_target: parseInt(draft.fileCountTarget, 10) || 5,
+        file_count_variance: parseInt(draft.fileCountVariance, 10) || 2,
+      },
     });
   }
 
@@ -124,6 +132,7 @@ export function WorldModelEditor({
         <label>
           Organization name
           <input
+            placeholder="Northbridge Financial Advisory"
             value={draft.organizationName}
             onChange={(event) => setDraft((current) => ({ ...current, organizationName: event.target.value }))}
           />
@@ -131,6 +140,7 @@ export function WorldModelEditor({
         <label>
           Industry
           <input
+            placeholder="Financial Services"
             value={draft.organizationIndustry}
             onChange={(event) => setDraft((current) => ({ ...current, organizationIndustry: event.target.value }))}
           />
@@ -138,6 +148,7 @@ export function WorldModelEditor({
         <label>
           Size
           <input
+            placeholder="mid-size"
             value={draft.organizationSize}
             onChange={(event) => setDraft((current) => ({ ...current, organizationSize: event.target.value }))}
           />
@@ -145,6 +156,7 @@ export function WorldModelEditor({
         <label>
           Region
           <input
+            placeholder="United States"
             value={draft.organizationRegion}
             onChange={(event) => setDraft((current) => ({ ...current, organizationRegion: event.target.value }))}
           />
@@ -152,6 +164,7 @@ export function WorldModelEditor({
         <label>
           Domain theme
           <input
+            placeholder="northbridgefinancial.local"
             value={draft.organizationDomainTheme}
             onChange={(event) => setDraft((current) => ({ ...current, organizationDomainTheme: event.target.value }))}
           />
@@ -159,6 +172,7 @@ export function WorldModelEditor({
         <label>
           Brand tone
           <input
+            placeholder="formal"
             value={draft.brandingTone}
             onChange={(event) => setDraft((current) => ({ ...current, brandingTone: event.target.value }))}
           />
@@ -167,6 +181,7 @@ export function WorldModelEditor({
           Description
           <textarea
             rows={3}
+            placeholder="A mid-size financial advisory firm specializing in portfolio management and regulatory compliance."
             value={draft.organizationDescription}
             onChange={(event) => setDraft((current) => ({ ...current, organizationDescription: event.target.value }))}
           />
@@ -214,6 +229,36 @@ export function WorldModelEditor({
             onChange={(event) => setDraft((current) => ({ ...current, employees: event.target.value }))}
           />
           <span className="field-hint">Use “Name | Role | Department” on each line.</span>
+        </label>
+      </div>
+      <div className="stack stack--compact" style={{ marginTop: "1.5rem" }}>
+        <h4>Generation settings</h4>
+        <p className="muted">Controls the number and variety of files generated per employee.</p>
+      </div>
+      <div className="form-grid">
+        <label>
+          Files per employee
+          <input
+            type="number"
+            min="1"
+            max="13"
+            placeholder="5"
+            value={draft.fileCountTarget}
+            onChange={(event) => setDraft((current) => ({ ...current, fileCountTarget: event.target.value }))}
+          />
+          <span className="field-hint">Target number of files per employee.</span>
+        </label>
+        <label>
+          Variance
+          <input
+            type="number"
+            min="0"
+            max="6"
+            placeholder="2"
+            value={draft.fileCountVariance}
+            onChange={(event) => setDraft((current) => ({ ...current, fileCountVariance: event.target.value }))}
+          />
+          <span className="field-hint">±variance randomizes file count per employee.</span>
         </label>
       </div>
       <div className="button-row">

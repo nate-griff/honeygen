@@ -316,3 +316,132 @@ func waitForJobStatus(t *testing.T, store *JobStore, jobID, wantStatus string) J
 	t.Fatalf("job.Status = %q, want %q", job.Status, wantStatus)
 	return Job{}
 }
+
+func TestCleanProviderResponse(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		content      string
+		renderedType string
+		want         string
+	}{
+		{
+			name:         "no fences",
+			content:      "<h1>Hello</h1>\n<p>World</p>",
+			renderedType: "html",
+			want:         "<h1>Hello</h1>\n<p>World</p>",
+		},
+		{
+			name:         "html fences",
+			content:      "```html\n<!DOCTYPE html>\n<html><body>test</body></html>\n```",
+			renderedType: "html",
+			want:         "<!DOCTYPE html>\n<html><body>test</body></html>",
+		},
+		{
+			name:         "markdown fences",
+			content:      "```markdown\n# Title\n\nSome content\n```",
+			renderedType: "markdown",
+			want:         "# Title\n\nSome content",
+		},
+		{
+			name:         "csv fences",
+			content:      "```csv\nname,email\nAlice,alice@example.com\n```",
+			renderedType: "csv",
+			want:         "name,email\nAlice,alice@example.com",
+		},
+		{
+			name:         "generic fence without language",
+			content:      "```\nplain content\n```",
+			renderedType: "text",
+			want:         "plain content",
+		},
+		{
+			name:         "empty content",
+			content:      "",
+			renderedType: "html",
+			want:         "",
+		},
+		{
+			name:         "whitespace around fences",
+			content:      "  \n```html\n<p>Content</p>\n```\n  ",
+			renderedType: "html",
+			want:         "<p>Content</p>",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := cleanProviderResponse(tt.content, tt.renderedType)
+			if got != tt.want {
+				t.Errorf("cleanProviderResponse() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBuildPromptIncludesColors(t *testing.T) {
+	t.Parallel()
+
+	model := worldmodels.WorldModel{
+		Organization: worldmodels.Organization{
+			Name:     "Test Corp",
+			Industry: "Technology",
+			Region:   "US",
+		},
+		Branding: worldmodels.Branding{
+			Tone:   "formal",
+			Colors: []string{"#123B5D", "#B58A3B"},
+		},
+		Departments: []string{"Engineering"},
+		Projects:    []string{"Alpha"},
+	}
+	entry := ManifestEntry{
+		Title:        "About Page",
+		Category:     "public-about-page",
+		Path:         "public/about.html",
+		RenderedType: "html",
+		PromptHint:   "Generate an about page",
+	}
+
+	prompt := buildPrompt(model, entry)
+
+	if !strings.Contains(prompt, "#123B5D") {
+		t.Error("prompt should contain brand color #123B5D")
+	}
+	if !strings.Contains(prompt, "#B58A3B") {
+		t.Error("prompt should contain brand color #B58A3B")
+	}
+	if !strings.Contains(prompt, "Brand colors:") {
+		t.Error("prompt should contain 'Brand colors:' label")
+	}
+}
+
+func TestBuildPromptOmitsColorsWhenEmpty(t *testing.T) {
+	t.Parallel()
+
+	model := worldmodels.WorldModel{
+		Organization: worldmodels.Organization{
+			Name:     "Test Corp",
+			Industry: "Technology",
+			Region:   "US",
+		},
+		Branding: worldmodels.Branding{
+			Tone:   "formal",
+			Colors: []string{},
+		},
+	}
+	entry := ManifestEntry{
+		Title:        "About Page",
+		Category:     "public-about-page",
+		Path:         "public/about.html",
+		RenderedType: "html",
+		PromptHint:   "Generate an about page",
+	}
+
+	prompt := buildPrompt(model, entry)
+
+	if strings.Contains(prompt, "Brand colors:") {
+		t.Error("prompt should not contain 'Brand colors:' when colors are empty")
+	}
+}

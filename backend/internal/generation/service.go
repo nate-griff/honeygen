@@ -145,9 +145,11 @@ func (s *Service) runJob(ctx context.Context, jobID, worldModelID string, model 
 			return
 		}
 
+		content := cleanProviderResponse(response.Content, entry.RenderedType)
+
 		output, err := s.renderers.Render(ctx, entry.RenderedType, rendering.Document{
 			Title: entry.Title,
-			Body:  response.Content,
+			Body:  content,
 			Metadata: map[string]string{
 				"category": entry.Category,
 				"path":     entry.Path,
@@ -242,6 +244,11 @@ func buildPrompt(model worldmodels.WorldModel, entry ManifestEntry) string {
 	builder.WriteString(model.Organization.Region)
 	builder.WriteString("\nTone: ")
 	builder.WriteString(model.Branding.Tone)
+	if len(model.Branding.Colors) > 0 {
+		builder.WriteString("\nBrand colors: ")
+		builder.WriteString(strings.Join(model.Branding.Colors, ", "))
+		builder.WriteString("\nUse these exact brand colors in any HTML/CSS styling. Do not invent different color values.")
+	}
 	builder.WriteString("\nRequested asset: ")
 	builder.WriteString(entry.Title)
 	builder.WriteString("\nCategory: ")
@@ -262,4 +269,33 @@ func buildPrompt(model worldmodels.WorldModel, entry ManifestEntry) string {
 	}
 	builder.WriteString("\nKeep the content plausible, businesslike, and finite.")
 	return builder.String()
+}
+
+// cleanProviderResponse strips markdown code fences that LLMs often wrap
+// around generated content (e.g. ```html ... ``` or ```csv ... ```).
+func cleanProviderResponse(content, renderedType string) string {
+	trimmed := strings.TrimSpace(content)
+	if trimmed == "" {
+		return trimmed
+	}
+
+	// Match opening fence: ```<optional language tag>
+	// Common variants: ```html, ```markdown, ```csv, ```text, ```
+	if idx := strings.Index(trimmed, "\n"); idx >= 0 {
+		firstLine := strings.TrimSpace(trimmed[:idx])
+		if strings.HasPrefix(firstLine, "```") {
+			// Strip the opening fence line
+			trimmed = strings.TrimSpace(trimmed[idx+1:])
+		}
+	} else if strings.HasPrefix(trimmed, "```") {
+		// Single-line content that is just a fence — unlikely but handle it
+		return ""
+	}
+
+	// Strip trailing fence: ```
+	if strings.HasSuffix(trimmed, "```") {
+		trimmed = strings.TrimSpace(trimmed[:len(trimmed)-3])
+	}
+
+	return trimmed
 }

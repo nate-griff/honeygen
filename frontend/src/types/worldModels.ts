@@ -18,6 +18,11 @@ export interface Employee {
   department: string;
 }
 
+export interface GenerationSettings {
+  file_count_target: number;
+  file_count_variance: number;
+}
+
 export interface WorldModelPayload {
   organization: Organization;
   branding: Branding;
@@ -25,6 +30,7 @@ export interface WorldModelPayload {
   employees: Employee[];
   projects: string[];
   document_themes: string[];
+  generation_settings?: GenerationSettings;
 }
 
 export interface WorldModelSummary {

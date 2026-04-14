@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -28,7 +29,7 @@ type Manager struct {
 }
 
 type runningDeployment struct {
-	server *http.Server
+	stop   func() // protocol-specific shutdown function
 	cancel context.CancelFunc
 }
 
@@ -59,16 +60,55 @@ func (m *Manager) Start(ctx context.Context, id string) error {
 		return fmt.Errorf("look up deployment: %w", err)
 	}
 
-	filePath := filepath.Join(m.storageRoot, "generated", d.WorldModelID, d.GenerationJobID)
+	filePath := m.resolveFilePath(d)
 
-	var handler http.Handler
-	if d.RootPath != "/" && d.RootPath != "" {
-		subDir := filepath.Join(filePath, filepath.FromSlash(strings.TrimPrefix(d.RootPath, "/")))
-		handler = http.FileServer(http.Dir(subDir))
-	} else {
-		handler = http.FileServer(http.Dir(filePath))
+	// Verify the directory exists.
+	if _, err := os.Stat(filePath); err != nil {
+		return fmt.Errorf("generated files directory not found: %w", err)
 	}
 
+	srvCtx, cancel := context.WithCancel(context.Background())
+	var stopFn func()
+
+	switch d.Protocol {
+	case "http":
+		stopFn, err = m.startHTTP(d, filePath, srvCtx, cancel)
+	case "ftp":
+		stopFn, err = m.startFTP(d, filePath, srvCtx, cancel)
+	case "nfs":
+		stopFn, err = m.startNFS(d, filePath, srvCtx, cancel)
+	case "smb":
+		cancel()
+		return fmt.Errorf("SMB protocol requires samba to be installed; not yet implemented as a managed server")
+	default:
+		cancel()
+		return fmt.Errorf("unsupported protocol: %s", d.Protocol)
+	}
+
+	if err != nil {
+		cancel()
+		return err
+	}
+
+	m.listeners[id] = &runningDeployment{stop: stopFn, cancel: cancel}
+
+	if err := m.repo.UpdateStatus(ctx, id, "running"); err != nil {
+		return fmt.Errorf("update deployment status: %w", err)
+	}
+
+	return nil
+}
+
+func (m *Manager) resolveFilePath(d Deployment) string {
+	filePath := filepath.Join(m.storageRoot, "generated", d.WorldModelID, d.GenerationJobID)
+	if d.RootPath != "/" && d.RootPath != "" {
+		filePath = filepath.Join(filePath, filepath.FromSlash(strings.TrimPrefix(d.RootPath, "/")))
+	}
+	return filePath
+}
+
+func (m *Manager) startHTTP(d Deployment, filePath string, srvCtx context.Context, cancel context.CancelFunc) (func(), error) {
+	handler := http.Handler(http.FileServer(http.Dir(filePath)))
 	handler = deploymentLoggingMiddleware(handler, d, m.apiBaseURL, m.eventToken, m.logger)
 
 	addr := fmt.Sprintf(":%d", d.Port)
@@ -79,29 +119,25 @@ func (m *Manager) Start(ctx context.Context, id string) error {
 
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
-		return fmt.Errorf("listen on %s: %w", addr, err)
+		return nil, fmt.Errorf("listen on %s: %w", addr, err)
 	}
 
-	srvCtx, cancel := context.WithCancel(context.Background())
-	m.listeners[id] = &runningDeployment{server: server, cancel: cancel}
-
 	go func() {
-		m.logger.Info("deployment started", "id", id, "addr", addr, "world_model", d.WorldModelID)
+		m.logger.Info("http deployment started", "id", d.ID, "addr", addr, "world_model", d.WorldModelID)
 		if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
-			m.logger.Error("deployment server error", "id", id, "error", err)
+			m.logger.Error("http deployment server error", "id", d.ID, "error", err)
 		}
 		cancel()
 	}()
 
-	go func() {
-		<-srvCtx.Done()
-	}()
-
-	if err := m.repo.UpdateStatus(ctx, id, "running"); err != nil {
-		return fmt.Errorf("update deployment status: %w", err)
+	stopFn := func() {
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer shutdownCancel()
+		_ = server.Shutdown(shutdownCtx)
 	}
+	_ = srvCtx // keep the context alive via the cancel in runningDeployment
 
-	return nil
+	return stopFn, nil
 }
 
 func (m *Manager) Stop(ctx context.Context, id string) error {
@@ -113,11 +149,7 @@ func (m *Manager) Stop(ctx context.Context, id string) error {
 	m.mu.Unlock()
 
 	if ok {
-		shutdownCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		defer cancel()
-		if err := rd.server.Shutdown(shutdownCtx); err != nil {
-			m.logger.Error("deployment shutdown error", "id", id, "error", err)
-		}
+		rd.stop()
 		rd.cancel()
 		m.logger.Info("deployment stopped", "id", id)
 	}
@@ -151,10 +183,9 @@ func (m *Manager) RestoreRunning(ctx context.Context) {
 		return
 	}
 	for _, d := range running {
-		m.logger.Info("restoring deployment", "id", d.ID, "port", d.Port)
+		m.logger.Info("restoring deployment", "id", d.ID, "port", d.Port, "protocol", d.Protocol)
 		if err := m.Start(ctx, d.ID); err != nil {
 			m.logger.Error("restore deployment failed", "id", d.ID, "error", err)
-			// Mark as stopped since we couldn't restart it
 			_ = m.repo.UpdateStatus(ctx, d.ID, "stopped")
 		}
 	}
@@ -194,6 +225,7 @@ func deploymentLoggingMiddleware(next http.Handler, d Deployment, apiBaseURL, to
 			Metadata: map[string]any{
 				"deployment_id": d.ID,
 				"world_model":   d.WorldModelID,
+				"protocol":      d.Protocol,
 			},
 		}
 

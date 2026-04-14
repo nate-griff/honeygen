@@ -19,6 +19,7 @@ services:
       LLM_MODEL: ${LLM_MODEL:-}
     ports:
       - "${API_PORT:-8080}:8080"
+      - "${DEPLOYMENT_PORTS:-9000-9020}:${DEPLOYMENT_PORTS:-9000-9020}"
     volumes:
       - sqlite-data:/app/storage/sqlite
       - generated-assets:/app/storage/generated

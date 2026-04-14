@@ -12,6 +12,7 @@ import (
 	"github.com/natet/honeygen/backend/internal/assets"
 	"github.com/natet/honeygen/backend/internal/config"
 	appdb "github.com/natet/honeygen/backend/internal/db"
+	"github.com/natet/honeygen/backend/internal/deployments"
 	"github.com/natet/honeygen/backend/internal/events"
 	"github.com/natet/honeygen/backend/internal/generation"
 	"github.com/natet/honeygen/backend/internal/models"
@@ -36,6 +37,8 @@ type APIApp struct {
 	Planner       *generation.Planner
 	Storage       *storage.Filesystem
 	Renderers     rendering.Registry
+	DeploymentRepo    *deployments.Repository
+	DeploymentManager *deployments.Manager
 }
 
 func NewAPIApp(ctx context.Context, cfg config.Config, logger *slog.Logger) (*APIApp, error) {
@@ -75,6 +78,11 @@ func NewAPIApp(ctx context.Context, cfg config.Config, logger *slog.Logger) (*AP
 	jobStore := generation.NewJobStore(database)
 	settingsStore := appdb.NewSettingsStore(database)
 	filesystem := storage.NewFilesystem(cfg.StorageRoot)
+	deploymentRepo := deployments.NewRepository(database)
+
+	// Derive the API base URL for deployment event forwarding
+	apiBaseURL := fmt.Sprintf("http://localhost%s", cfg.HTTPAddr)
+	deploymentManager := deployments.NewManager(deploymentRepo, cfg.GeneratedAssetsDir, logger, cfg.InternalEventIngestToken, apiBaseURL)
 
 	// Load saved provider settings (overlay on top of env/config file values)
 	savedProvider, err := loadSavedProviderConfig(ctx, settingsStore)
@@ -92,7 +100,7 @@ func NewAPIApp(ctx context.Context, cfg config.Config, logger *slog.Logger) (*AP
 		}
 	}
 
-	return &APIApp{
+	result := &APIApp{
 		Config:        cfg,
 		Logger:        logger,
 		DB:            database,
@@ -107,7 +115,13 @@ func NewAPIApp(ctx context.Context, cfg config.Config, logger *slog.Logger) (*AP
 		Planner:       generation.NewPlanner(),
 		Storage:       filesystem,
 		Renderers:     rendering.NewRegistry(rendering.RegistryConfig{}),
-	}, nil
+		DeploymentRepo:    deploymentRepo,
+		DeploymentManager: deploymentManager,
+	}
+
+	deploymentManager.RestoreRunning(ctx)
+
+	return result, nil
 }
 
 func (a *APIApp) UpdateProvider(cfg config.ProviderConfig) {
@@ -128,7 +142,13 @@ func (a *APIApp) GenerationService() *generation.Service {
 }
 
 func (a *APIApp) Close() error {
-	if a == nil || a.DB == nil {
+	if a == nil {
+		return nil
+	}
+	if a.DeploymentManager != nil {
+		a.DeploymentManager.StopAll(context.Background())
+	}
+	if a.DB == nil {
 		return nil
 	}
 	return a.DB.Close()

@@ -77,6 +77,20 @@ CREATE TABLE IF NOT EXISTS settings (
 	value_json TEXT NOT NULL,
 	updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
 );
+
+CREATE TABLE IF NOT EXISTS deployments (
+	id TEXT PRIMARY KEY,
+	generation_job_id TEXT NOT NULL,
+	world_model_id TEXT NOT NULL,
+	protocol TEXT NOT NULL DEFAULT 'http',
+	port INTEGER NOT NULL,
+	root_path TEXT NOT NULL DEFAULT '/',
+	status TEXT NOT NULL DEFAULT 'stopped',
+	created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+	updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+	FOREIGN KEY (generation_job_id) REFERENCES generation_jobs(id),
+	FOREIGN KEY (world_model_id) REFERENCES world_models(id)
+);
 `
 
 var schemaUpgrades = []struct {
@@ -114,6 +128,7 @@ var schemaIndexes = []string{
 	`CREATE INDEX IF NOT EXISTS idx_events_source_ip ON events(source_ip)`,
 	`CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_events_created_at ON events(created_at DESC)`,
+	`CREATE INDEX IF NOT EXISTS idx_deployments_status ON deployments(status)`,
 }
 
 func Migrate(ctx context.Context, database *sql.DB) error {

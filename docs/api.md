@@ -100,7 +100,7 @@ Supported query params:
 Preview behavior:
 
 - HTML, Markdown, text, and CSV can be previewed inline
-- PDFs return metadata with `previewable: false`
+- PDFs, DOCX, and XLSX return metadata with `previewable: false`
 
 ## Events
 
@@ -120,6 +120,33 @@ Supported `/api/events` query params:
 - `offset`
 
 The internal ingestion endpoint is protected by `X-Honeygen-Internal-Event-Token`.
+
+## Deployments
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/api/deployments` | List all deployments (returns `items` array and `running` status map) |
+| POST | `/api/deployments` | Create a deployment |
+| GET | `/api/deployments/:id` | Fetch one deployment |
+| DELETE | `/api/deployments/:id` | Delete a deployment (stops it first if running) |
+| POST | `/api/deployments/:id/start` | Start serving the deployment |
+| POST | `/api/deployments/:id/stop` | Stop serving the deployment |
+
+Create request body:
+
+```json
+{
+  "generation_job_id": "...",
+  "world_model_id": "...",
+  "protocol": "http",
+  "port": 9000,
+  "root_path": "generated/northbridge-financial/<job-id>"
+}
+```
+
+Supported `protocol` values: `"http"`, `"ftp"`, `"nfs"`.
+
+The same generation job output can be deployed across multiple protocols on different ports. Docker Compose exposes the port range 9000–9020 by default for deployments.
 
 ## Error shape
 
@@ -147,3 +174,5 @@ Common codes include:
 - `generation_failed`
 - `assets_unavailable`
 - `events_unavailable`
+- `start_failed`
+- `stop_failed`

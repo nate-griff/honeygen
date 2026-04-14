@@ -8,6 +8,8 @@ The platform runs as three services in `docker-compose.yml`:
 - **admin-web** - React admin UI built with Vite and served by NGINX
 - **decoy-web** - Go HTTP service that serves generated files and forwards non-health access telemetry back to the API
 
+Beyond these three fixed services, the API can spawn additional listeners for deployments — dedicated HTTP file servers, FTP servers, or NFS servers — each bound to its own port within the 9000–9020 range exposed by Docker Compose.
+
 ## Request flow
 
 1. A user opens the admin UI at `http://localhost:4173`.
@@ -17,12 +19,30 @@ The platform runs as three services in `docker-compose.yml`:
    - loads the saved world model from SQLite
    - builds a deterministic asset manifest from that model
    - calls the configured external OpenAI-compatible provider once per manifest entry
-   - renders content into HTML, Markdown, text, CSV, or PDF
+   - renders content into HTML, Markdown, text, CSV, PDF, DOCX, or XLSX
    - writes files to shared storage
    - records asset and generation metadata in SQLite
 5. The decoy service reads the generated files from the shared volume and serves them under `/generated/...`.
 6. Every non-health decoy request is posted to `POST /internal/events` with `X-Honeygen-Internal-Event-Token`.
 7. The admin UI reads those persisted events through `/api/status` and `/api/events`.
+
+## Generation
+
+The generation planner builds a deterministic asset manifest from the world model. In v1.1, the planner supports **file variation**: a pool of 16 document templates with style hints, driven by a seeded RNG so that repeated runs against the same world model produce diverse but reproducible output. World models can include `generation_settings` with `file_count_target` and `file_count_variance` to control the number of generated files per run.
+
+Rendering now includes **DOCX** (pure Go) and **XLSX** (excelize/v2) alongside the existing HTML, Markdown, text, CSV, and PDF renderers. DOCX and XLSX assets are non-previewable, like PDFs.
+
+## Deployments
+
+Deployments serve generation job output on dedicated ports, managed by an in-process `DeploymentManager` within the API service. Each deployment binds a generation job's file tree to a port using one of the supported protocols:
+
+- **HTTP** — `http.FileServer` serving the job's output directory
+- **FTP** — `goftp/server/v2` exposing the files over FTP
+- **NFS** — `go-nfs` providing NFSv3 access to the files
+
+The same generation job output can be deployed across multiple protocols simultaneously. Event forwarding to `POST /internal/events` works the same way as `decoy-web`, so all access is captured in the event log.
+
+Docker Compose exposes the port range 9000–9020 by default for deployment listeners.
 
 ## Storage
 
@@ -98,5 +118,5 @@ Owns:
 
 - `api` and `decoy-web` must share the same `INTERNAL_EVENT_INGEST_TOKEN`.
 - Provider mode is `external` only when `LLM_BASE_URL`, `LLM_API_KEY`, and `LLM_MODEL` are all set.
-- PDF rendering depends on `wkhtmltopdf` inside the backend image.
+- PDF rendering depends on `wkhtmltopdf` inside the backend image. DOCX and XLSX rendering are pure Go with no external dependencies.
 - Persistence survives container restart as long as Compose volumes are kept.

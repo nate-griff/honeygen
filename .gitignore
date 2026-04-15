@@ -23,3 +23,9 @@ backend/.cache/
 # Build outputs
 coverage/
 *.log
+
+# Security Audit Artifacts
+static_analysis_codeql_1/
+Honeygen_DIFFERENTIAL_REVIEW_*
+Honeygen_VARIANT_ANALYSIS_REPORT.md
+security-audit-report.md

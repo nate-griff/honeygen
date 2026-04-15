@@ -1,15 +1,13 @@
 package deployments
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -19,13 +17,14 @@ import (
 )
 
 type Manager struct {
-	mu          sync.Mutex
-	repo        *Repository
-	listeners   map[string]*runningDeployment
-	storageRoot string
-	logger      *slog.Logger
-	eventToken  string
-	apiBaseURL  string
+	mu              sync.Mutex
+	repo            *Repository
+	listeners       map[string]*runningDeployment
+	storageRoot     string
+	ftpPublicHost   string
+	ftpPassivePorts string
+	logger          *slog.Logger
+	recorder        events.Recorder
 }
 
 type runningDeployment struct {
@@ -33,17 +32,18 @@ type runningDeployment struct {
 	cancel context.CancelFunc
 }
 
-func NewManager(repo *Repository, storageRoot string, logger *slog.Logger, eventToken, apiBaseURL string) *Manager {
+func NewManager(repo *Repository, storageRoot string, logger *slog.Logger, eventToken, apiBaseURL, ftpPublicHost, ftpPassivePorts string) *Manager {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return &Manager{
-		repo:        repo,
-		listeners:   make(map[string]*runningDeployment),
-		storageRoot: storageRoot,
-		logger:      logger,
-		eventToken:  eventToken,
-		apiBaseURL:  strings.TrimRight(strings.TrimSpace(apiBaseURL), "/"),
+		repo:            repo,
+		listeners:       make(map[string]*runningDeployment),
+		storageRoot:     storageRoot,
+		ftpPublicHost:   strings.TrimSpace(ftpPublicHost),
+		ftpPassivePorts: strings.TrimSpace(ftpPassivePorts),
+		logger:          logger,
+		recorder:        events.NewHTTPRecorder(apiBaseURL, eventToken, nil),
 	}
 }
 
@@ -78,8 +78,7 @@ func (m *Manager) Start(ctx context.Context, id string) error {
 	case "nfs":
 		stopFn, err = m.startNFS(d, filePath, srvCtx, cancel)
 	case "smb":
-		cancel()
-		return fmt.Errorf("SMB protocol requires samba to be installed; not yet implemented as a managed server")
+		stopFn, err = m.startSMB(d, filePath, srvCtx, cancel)
 	default:
 		cancel()
 		return fmt.Errorf("unsupported protocol: %s", d.Protocol)
@@ -101,15 +100,35 @@ func (m *Manager) Start(ctx context.Context, id string) error {
 
 func (m *Manager) resolveFilePath(d Deployment) string {
 	filePath := filepath.Join(m.storageRoot, "generated", d.WorldModelID, d.GenerationJobID)
-	if d.RootPath != "/" && d.RootPath != "" {
-		filePath = filepath.Join(filePath, filepath.FromSlash(strings.TrimPrefix(d.RootPath, "/")))
+	rootPath := normalizeDeploymentRootPath(d)
+	if rootPath != "/" {
+		filePath = filepath.Join(filePath, filepath.FromSlash(strings.TrimPrefix(rootPath, "/")))
 	}
 	return filePath
 }
 
+func normalizeDeploymentRootPath(d Deployment) string {
+	rootPath := strings.TrimSpace(filepath.ToSlash(d.RootPath))
+	if rootPath == "" || rootPath == "/" {
+		return "/"
+	}
+
+	cleanRoot := path.Clean("/" + strings.TrimPrefix(rootPath, "/"))
+	fullPrefix := path.Clean("/generated/" + d.WorldModelID + "/" + d.GenerationJobID)
+
+	if cleanRoot == fullPrefix {
+		return "/"
+	}
+	if strings.HasPrefix(cleanRoot, fullPrefix+"/") {
+		return strings.TrimPrefix(cleanRoot, fullPrefix)
+	}
+
+	return cleanRoot
+}
+
 func (m *Manager) startHTTP(d Deployment, filePath string, srvCtx context.Context, cancel context.CancelFunc) (func(), error) {
 	handler := http.Handler(http.FileServer(http.Dir(filePath)))
-	handler = deploymentLoggingMiddleware(handler, d, m.apiBaseURL, m.eventToken, m.logger)
+	handler = deploymentLoggingMiddleware(handler, d, m.recorder, m.logger)
 
 	addr := fmt.Sprintf(":%d", d.Port)
 	server := &http.Server{
@@ -200,22 +219,21 @@ func (m *Manager) IsRunning(id string) bool {
 
 // deploymentLoggingMiddleware wraps a handler with event forwarding, following the
 // same pattern as decoy.LoggingMiddleware.
-func deploymentLoggingMiddleware(next http.Handler, d Deployment, apiBaseURL, token string, logger *slog.Logger) http.Handler {
-	client := &http.Client{Timeout: 3 * time.Second}
-
+func deploymentLoggingMiddleware(next http.Handler, d Deployment, recorder events.Recorder, logger *slog.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		startedAt := time.Now().UTC()
 		capture := &captureResponseWriter{ResponseWriter: w}
 		next.ServeHTTP(capture, r)
 
-		if apiBaseURL == "" || token == "" {
+		if recorder == nil {
 			return
 		}
 
 		payload := events.IngestRequest{
 			Timestamp:  startedAt,
+			EventType:  "http_request",
 			Method:     r.Method,
-			Path:       r.URL.Path,
+			Path:       deploymentEventPath(d, r.URL.Path),
 			Query:      r.URL.RawQuery,
 			SourceIP:   sourceIPFromRequest(r),
 			UserAgent:  r.UserAgent(),
@@ -233,27 +251,9 @@ func deploymentLoggingMiddleware(next http.Handler, d Deployment, apiBaseURL, to
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()
 
-			body, err := json.Marshal(payload)
-			if err != nil {
-				logger.Error("marshal deployment event", "error", err)
-				return
-			}
-
-			req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiBaseURL+"/internal/events", bytes.NewReader(body))
-			if err != nil {
-				logger.Error("create deployment event request", "error", err)
-				return
-			}
-			req.Header.Set("Content-Type", "application/json; charset=utf-8")
-			req.Header.Set(events.InternalIngestTokenHeader, token)
-
-			resp, err := client.Do(req)
-			if err != nil {
+			if err := recorder.Record(ctx, payload); err != nil {
 				logger.Error("post deployment event", "error", err, "path", payload.Path)
-				return
 			}
-			defer resp.Body.Close()
-			_, _ = io.Copy(io.Discard, resp.Body)
 		}()
 	})
 }

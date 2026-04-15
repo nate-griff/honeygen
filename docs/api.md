@@ -138,15 +138,24 @@ Create request body:
 {
   "generation_job_id": "...",
   "world_model_id": "...",
-  "protocol": "http",
+  "protocol": "smb",
   "port": 9000,
-  "root_path": "generated/northbridge-financial/<job-id>"
+  "root_path": "/shared"
 }
 ```
 
-Supported `protocol` values: `"http"`, `"ftp"`, `"nfs"`.
+Supported `protocol` values: `"http"`, `"ftp"`, `"nfs"`, `"smb"`.
 
-The same generation job output can be deployed across multiple protocols on different ports. Docker Compose exposes the port range 9000–9020 by default for deployments.
+The same generation job output can be deployed across multiple protocols on different ports. Docker Compose exposes the port range 9000–9020 by default for deployments, and FTP reuses `9011–9020` from that published range for passive data connections. SMB deployment responses include `share_name: "honeygen"`, and NFS deployment responses include `mount_path: "/mount"` so clients know what to connect to. On Windows, passive-mode FTP clients work best; custom-port SMB listeners are not reachable from the built-in SMB client on the same host because it requires port `445`.
+
+All deployment protocols now write into the same event-log ingestion path:
+
+- `http_request` for HTTP deployments
+- `ftp_list`, `ftp_download` for FTP
+- `nfs_mount`, `nfs_list`, `nfs_read` for NFS
+- `smb_connect`, `smb_disconnect`, `smb_opendir`, `smb_open` for SMB
+
+Non-HTTP events normalize their `path` back to the canonical generated asset path and include protocol metadata in `metadata.protocol`, `metadata.operation`, and `metadata.deployment_id`. `status_code`, `user_agent`, and `referer` are typically blank outside HTTP because those protocols do not expose equivalent request metadata.
 
 ## Error shape
 

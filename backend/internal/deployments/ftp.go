@@ -15,15 +15,13 @@ import (
 func (m *Manager) startFTP(d Deployment, filePath string, srvCtx context.Context, cancel context.CancelFunc) (func(), error) {
 	addr := fmt.Sprintf(":%d", d.Port)
 
-	driver := &ftpFileDriver{root: filePath}
-	opts := &ftpserver.Options{
-		Name:   fmt.Sprintf("honeygen-ftp-%s", d.ID),
-		Driver: driver,
-		Auth:   &ftpAnonymousAuth{},
-		Perm:   ftpserver.NewSimplePerm("honeygen", "honeygen"),
-		Port:   d.Port,
-		Logger: &ftpLogger{m: m, deploymentID: d.ID},
+	driver := &telemetryFTPDriver{
+		driver:     &ftpFileDriver{root: filePath},
+		deployment: d,
+		recorder:   m.recorder,
+		logger:     m.logger,
 	}
+	opts := m.buildFTPOptions(d, driver)
 
 	server, err := ftpserver.NewServer(opts)
 	if err != nil {
@@ -50,6 +48,19 @@ func (m *Manager) startFTP(d Deployment, filePath string, srvCtx context.Context
 	}
 
 	return stopFn, nil
+}
+
+func (m *Manager) buildFTPOptions(d Deployment, driver ftpserver.Driver) *ftpserver.Options {
+	return &ftpserver.Options{
+		Name:         fmt.Sprintf("honeygen-ftp-%s", d.ID),
+		Driver:       driver,
+		Auth:         &ftpAnonymousAuth{},
+		Perm:         ftpserver.NewSimplePerm("honeygen", "honeygen"),
+		Port:         d.Port,
+		PublicIP:     m.ftpPublicHost,
+		PassivePorts: m.ftpPassivePorts,
+		Logger:       &ftpLogger{m: m, deploymentID: d.ID},
+	}
 }
 
 // ftpFileDriver implements goftp.io/server/v2 Driver for read-only file serving.
@@ -162,5 +173,3 @@ func (l *ftpLogger) PrintCommand(sessionID string, command string, params string
 func (l *ftpLogger) PrintResponse(sessionID string, code int, message string) {
 	l.m.logger.Debug("ftp response", "deployment", l.deploymentID, "session", sessionID, "code", code, "msg", message)
 }
-
-

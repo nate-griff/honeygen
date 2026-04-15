@@ -13,6 +13,8 @@ import (
 
 var ErrNotFound = errors.New("deployment not found")
 
+const nfsMountPath = "/mount"
+
 type Deployment struct {
 	ID              string    `json:"id"`
 	GenerationJobID string    `json:"generation_job_id"`
@@ -21,6 +23,8 @@ type Deployment struct {
 	Port            int       `json:"port"`
 	RootPath        string    `json:"root_path"`
 	Status          string    `json:"status"`
+	ShareName       string    `json:"share_name,omitempty"`
+	MountPath       string    `json:"mount_path,omitempty"`
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
 }
@@ -191,6 +195,13 @@ func scanDeployment(scanner rowScanner) (Deployment, error) {
 	d.UpdatedAt, err = appdb.ParseTimestamp(updatedAtRaw)
 	if err != nil {
 		return Deployment{}, fmt.Errorf("parse deployment updated_at %q: %w", updatedAtRaw, err)
+	}
+
+	switch d.Protocol {
+	case "smb":
+		d.ShareName = smbShareName
+	case "nfs":
+		d.MountPath = nfsMountPath
 	}
 
 	return d, nil

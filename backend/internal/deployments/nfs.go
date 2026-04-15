@@ -19,7 +19,7 @@ func (m *Manager) startNFS(d Deployment, filePath string, srvCtx context.Context
 	}
 
 	bfs := osfs.New(filePath)
-	handler := nfshelper.NewNullAuthHandler(bfs)
+	handler := newTelemetryNFSHandler(bfs, d, m.recorder, m.logger)
 	handler = nfshelper.NewCachingHandler(handler, 1024)
 
 	go func() {

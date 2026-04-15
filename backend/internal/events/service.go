@@ -15,6 +15,7 @@ const InternalIngestTokenHeader = "X-Honeygen-Internal-Event-Token"
 
 type IngestRequest struct {
 	Timestamp  time.Time      `json:"timestamp"`
+	EventType  string         `json:"event_type,omitempty"`
 	Method     string         `json:"method"`
 	Path       string         `json:"path"`
 	Query      string         `json:"query"`
@@ -76,7 +77,7 @@ func (s *Service) Ingest(ctx context.Context, request IngestRequest) (Event, err
 	}
 
 	event := Event{
-		EventType:  "http_request",
+		EventType:  strings.TrimSpace(request.EventType),
 		Method:     method,
 		Query:      strings.TrimSpace(request.Query),
 		Path:       normalizedPath,
@@ -88,6 +89,9 @@ func (s *Service) Ingest(ctx context.Context, request IngestRequest) (Event, err
 		Timestamp:  request.Timestamp.UTC(),
 		Level:      "info",
 		Metadata:   request.Metadata,
+	}
+	if event.EventType == "" {
+		event.EventType = "http_request"
 	}
 	if event.Timestamp.IsZero() {
 		event.Timestamp = s.now()

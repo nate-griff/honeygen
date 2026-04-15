@@ -23,6 +23,8 @@ type Config struct {
 	ServiceVersion           string         `json:"service_version"`
 	AppEnv                   string         `json:"app_env"`
 	HTTPAddr                 string         `json:"http_addr"`
+	FTPPublicHost            string         `json:"ftp_public_host"`
+	FTPPassivePorts          string         `json:"ftp_passive_ports"`
 	InternalEventIngestToken string         `json:"internal_event_ingest_token"`
 	SQLitePath               string         `json:"sqlite_path"`
 	GeneratedAssetsDir       string         `json:"generated_assets_dir"`
@@ -54,6 +56,8 @@ type fileConfig struct {
 	ServiceVersion           *string             `json:"service_version"`
 	AppEnv                   *string             `json:"app_env"`
 	HTTPAddr                 *string             `json:"http_addr"`
+	FTPPublicHost            *string             `json:"ftp_public_host"`
+	FTPPassivePorts          *string             `json:"ftp_passive_ports"`
 	InternalEventIngestToken *string             `json:"internal_event_ingest_token"`
 	SQLitePath               *string             `json:"sqlite_path"`
 	GeneratedAssetsDir       *string             `json:"generated_assets_dir"`
@@ -90,6 +94,8 @@ func LoadWithDefaults(configPath string, defaults Config) (Config, error) {
 	applyDefaultString(&cfg.ServiceVersion, defaults.ServiceVersion)
 	applyDefaultString(&cfg.AppEnv, defaults.AppEnv)
 	applyDefaultString(&cfg.HTTPAddr, defaults.HTTPAddr)
+	applyDefaultString(&cfg.FTPPublicHost, defaults.FTPPublicHost)
+	applyDefaultString(&cfg.FTPPassivePorts, defaults.FTPPassivePorts)
 	applyDefaultString(&cfg.InternalEventIngestToken, defaults.InternalEventIngestToken)
 	applyDefaultString(&cfg.SQLitePath, defaults.SQLitePath)
 	applyDefaultString(&cfg.GeneratedAssetsDir, defaults.GeneratedAssetsDir)
@@ -114,6 +120,8 @@ func LoadWithDefaults(configPath string, defaults Config) (Config, error) {
 	applyEnvOverride(&cfg.ServiceVersion, "APP_VERSION")
 	applyEnvOverride(&cfg.AppEnv, "APP_ENV")
 	applyEnvOverride(&cfg.HTTPAddr, "HTTP_ADDR")
+	applyEnvOverride(&cfg.FTPPublicHost, "FTP_PUBLIC_HOST")
+	applyEnvOverride(&cfg.FTPPassivePorts, "FTP_PASSIVE_PORTS")
 	applyEnvOverride(&cfg.InternalEventIngestToken, "INTERNAL_EVENT_INGEST_TOKEN")
 	applyEnvOverride(&cfg.SQLitePath, "SQLITE_PATH")
 	applyEnvOverride(&cfg.GeneratedAssetsDir, "GENERATED_ASSETS_DIR")
@@ -145,6 +153,8 @@ func applyFileConfig(cfg *Config, path string) error {
 	applyOptionalString(&cfg.ServiceVersion, fileCfg.ServiceVersion)
 	applyOptionalString(&cfg.AppEnv, fileCfg.AppEnv)
 	applyOptionalString(&cfg.HTTPAddr, fileCfg.HTTPAddr)
+	applyOptionalString(&cfg.FTPPublicHost, fileCfg.FTPPublicHost)
+	applyOptionalString(&cfg.FTPPassivePorts, fileCfg.FTPPassivePorts)
 	applyOptionalString(&cfg.InternalEventIngestToken, fileCfg.InternalEventIngestToken)
 	applyOptionalString(&cfg.SQLitePath, fileCfg.SQLitePath)
 	applyOptionalString(&cfg.GeneratedAssetsDir, fileCfg.GeneratedAssetsDir)

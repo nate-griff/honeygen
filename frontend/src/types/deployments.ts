@@ -6,6 +6,8 @@ export interface Deployment {
   port: number;
   root_path: string;
   status: string;
+  share_name?: string;
+  mount_path?: string;
   created_at: string;
   updated_at: string;
 }

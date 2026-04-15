@@ -162,3 +162,38 @@ func TestInternalEventIngestionRejectsUnauthorizedRequests(t *testing.T) {
 		})
 	}
 }
+
+func TestInternalEventIngestionPreservesExplicitEventType(t *testing.T) {
+	application := newTestAPIApp(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/internal/events", bytes.NewBufferString(`{
+		"timestamp":"2024-06-01T12:00:00Z",
+		"event_type":"ftp_download",
+		"method":"RETR",
+		"path":"/generated/world-1/job-1/public/report.html",
+		"source_ip":"203.0.113.10",
+		"status_code":0,
+		"bytes_sent":512,
+		"metadata":{"protocol":"ftp","operation":"download"}
+	}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(events.InternalIngestTokenHeader, application.Config.InternalEventIngestToken)
+
+	rec := httptest.NewRecorder()
+	NewRouter(application).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("POST /internal/events status = %d, want %d, body=%s", rec.Code, http.StatusCreated, rec.Body.String())
+	}
+
+	var created events.Event
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("json.Unmarshal(created) error = %v", err)
+	}
+	if created.EventType != "ftp_download" {
+		t.Fatalf("created.EventType = %q, want %q", created.EventType, "ftp_download")
+	}
+	if created.Method != "RETR" {
+		t.Fatalf("created.Method = %q, want %q", created.Method, "RETR")
+	}
+}

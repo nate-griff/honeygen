@@ -77,9 +77,9 @@ func deploymentsCreateHandler(application *app.APIApp) http.HandlerFunc {
 		if req.Protocol == "" {
 			req.Protocol = "http"
 		}
-		validProtocols := map[string]bool{"http": true, "ftp": true, "nfs": true}
+		validProtocols := map[string]bool{"http": true, "ftp": true, "nfs": true, "smb": true}
 		if !validProtocols[req.Protocol] {
-			writeError(w, http.StatusBadRequest, "validation_error", "protocol must be \"http\", \"ftp\", or \"nfs\"")
+			writeError(w, http.StatusBadRequest, "validation_error", "protocol must be \"http\", \"ftp\", \"nfs\", or \"smb\"")
 			return
 		}
 		if req.RootPath == "" {

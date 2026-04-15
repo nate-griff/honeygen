@@ -8,7 +8,7 @@ The platform runs as three services in `docker-compose.yml`:
 - **admin-web** - React admin UI built with Vite and served by NGINX
 - **decoy-web** - Go HTTP service that serves generated files and forwards non-health access telemetry back to the API
 
-Beyond these three fixed services, the API can spawn additional listeners for deployments — dedicated HTTP file servers, FTP servers, or NFS servers — each bound to its own port within the 9000–9020 range exposed by Docker Compose.
+Beyond these three fixed services, the API can spawn additional listeners for deployments — dedicated HTTP file servers, FTP servers, NFS servers, or SMB servers — each bound to its own port within the 9000–9020 range exposed by Docker Compose. FTP deployments also rely on a passive data-port range (`9011–9020` by default) within that published range when running behind Docker NAT.
 
 ## Request flow
 
@@ -37,10 +37,18 @@ Rendering now includes **DOCX** (pure Go) and **XLSX** (excelize/v2) alongside t
 Deployments serve generation job output on dedicated ports, managed by an in-process `DeploymentManager` within the API service. Each deployment binds a generation job's file tree to a port using one of the supported protocols:
 
 - **HTTP** — `http.FileServer` serving the job's output directory
-- **FTP** — `goftp/server/v2` exposing the files over FTP
+- **FTP** — `goftp/server/v2` exposing the files over FTP, configured with a public host/IP and passive port range so passive-mode listings/downloads work through Docker port publishing. Active-mode clients remain a poor fit behind Docker NAT on Windows.
 - **NFS** — `go-nfs` providing NFSv3 access to the files
+- **SMB** — Samba `smbd`, started as a managed subprocess with a per-deployment config and a read-only guest share named `honeygen`. Native Windows SMB clients cannot use this listener on localhost unless the service is reachable on port `445`, which Docker Desktop on Windows does not provide for this setup.
 
-The same generation job output can be deployed across multiple protocols simultaneously. Event forwarding to `POST /internal/events` works the same way as `decoy-web`, so all access is captured in the event log.
+The same generation job output can be deployed across multiple protocols simultaneously. Every deployment protocol now feeds the same `POST /internal/events` pipeline, but each protocol contributes telemetry at its own natural granularity:
+
+- **HTTP** emits `http_request` with full request/response metadata
+- **FTP** emits `ftp_list` and `ftp_download`
+- **NFS** emits `nfs_mount`, `nfs_list`, and `nfs_read`
+- **SMB** emits `smb_connect`, `smb_disconnect`, `smb_opendir`, and `smb_open` by parsing Samba `full_audit` output
+
+Non-HTTP deployment events normalize paths back to canonical `/generated/<world>/<job>/...` asset paths and include protocol metadata such as `deployment_id`, `protocol`, and `operation`. They do not have full HTTP-style fields like user agent or response status because those concepts are not available in the same way for FTP, NFS, or SMB.
 
 Docker Compose exposes the port range 9000–9020 by default for deployment listeners.
 

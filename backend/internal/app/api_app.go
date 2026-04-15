@@ -82,7 +82,15 @@ func NewAPIApp(ctx context.Context, cfg config.Config, logger *slog.Logger) (*AP
 
 	// Derive the API base URL for deployment event forwarding
 	apiBaseURL := fmt.Sprintf("http://localhost%s", cfg.HTTPAddr)
-	deploymentManager := deployments.NewManager(deploymentRepo, cfg.GeneratedAssetsDir, logger, cfg.InternalEventIngestToken, apiBaseURL)
+	deploymentManager := deployments.NewManager(
+		deploymentRepo,
+		cfg.StorageRoot,
+		logger,
+		cfg.InternalEventIngestToken,
+		apiBaseURL,
+		cfg.FTPPublicHost,
+		cfg.FTPPassivePorts,
+	)
 
 	// Load saved provider settings (overlay on top of env/config file values)
 	savedProvider, err := loadSavedProviderConfig(ctx, settingsStore)

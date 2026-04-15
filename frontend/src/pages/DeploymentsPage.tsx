@@ -66,6 +66,34 @@ export default function DeploymentsPage() {
     return `${model?.name ?? job.world_model_id} — ${job.id.slice(0, 8)}`;
   }
 
+  function connectionTarget(deployment: Deployment): string {
+    switch (deployment.protocol) {
+      case "http":
+        return `http://localhost:${deployment.port}/`;
+      case "ftp":
+        return `ftp://localhost:${deployment.port}/`;
+      case "nfs":
+        return `127.0.0.1:${deployment.mount_path ?? "/mount"}`;
+      case "smb":
+        return `//127.0.0.1/${deployment.share_name ?? "honeygen"}`;
+      default:
+        return "";
+    }
+  }
+
+  function connectionHint(deployment: Deployment): string {
+    switch (deployment.protocol) {
+      case "ftp":
+        return "Anonymous read-only. Passive-mode Windows clients work; Docker/Windows active-mode clients such as ftp.exe do not work reliably through Docker NAT.";
+      case "nfs":
+        return "WSL/Linux mount target. Use nfsvers=3,noacl,tcp,port=<port>,mountport=<port>,nolock,noresvport.";
+      case "smb":
+        return `Read-only guest share on port ${deployment.port}. Windows Explorer cannot use custom-port SMB on the same host; use WSL/Linux or a host that can expose port 445.`;
+      default:
+        return "";
+    }
+  }
+
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
     if (!selectedJobID) return;
@@ -127,11 +155,11 @@ export default function DeploymentsPage() {
     <div className="stack">
       <PageHeader
         title="Deployments"
-        description="Deploy generated file trees as standalone servers over HTTP, FTP, or NFS. Each deployment serves one generation job's output on a dedicated port. The same files can be deployed across multiple protocols."
+        description="Deploy generated file trees as standalone servers over HTTP, FTP, NFS, or SMB. Each deployment serves one generation job's output on a dedicated port. The same files can be deployed across multiple protocols."
       />
       {error ? <ErrorAlert message={error} /> : null}
       <div className="two-column">
-        <Panel title="Create deployment" subtitle="Serve a completed generation job on a dedicated port via HTTP, FTP, or NFS">
+        <Panel title="Create deployment" subtitle="Serve a completed generation job on a dedicated port via HTTP, FTP, NFS, or SMB">
           <form className="stack stack--compact" onSubmit={handleCreate}>
             {formError ? <ErrorAlert message={formError} /> : null}
             <label>
@@ -151,11 +179,13 @@ export default function DeploymentsPage() {
                 <option value="http">HTTP</option>
                 <option value="ftp">FTP</option>
                 <option value="nfs">NFS</option>
+                <option value="smb">SMB</option>
               </select>
               <span className="field-hint">
                 {protocol === "http" && "Serve files over HTTP — ideal for web content."}
-                {protocol === "ftp" && "Serve files over FTP — anonymous read-only access."}
-                {protocol === "nfs" && "Serve files over NFSv3 — mount as a network share."}
+                {protocol === "ftp" && "Serve files over FTP — anonymous read-only access with passive-mode clients and passive data ports reserved inside the deployment port range."}
+                {protocol === "nfs" && "Serve files over NFSv3 — mount 127.0.0.1:/mount from WSL or Linux using the selected port for both port and mountport."}
+                {protocol === "smb" && "Serve files over SMB using the read-only guest share named honeygen on the selected port. Native Windows SMB clients require port 445, so localhost testing is best done from WSL/Linux clients."}
               </span>
             </label>
             <label>
@@ -177,7 +207,7 @@ export default function DeploymentsPage() {
                 value={rootPath}
                 onChange={(e) => setRootPath(e.target.value)}
               />
-              <span className="field-hint">Subtree to serve, e.g. "/" for all files, "/public" for public only.</span>
+              <span className="field-hint">Subtree only, e.g. "/" for all files or "/public" for public only. Do not include "/generated/&lt;world&gt;/&lt;job&gt;".</span>
             </label>
             <div className="button-row">
               <button className="button button--primary" type="submit" disabled={isSubmitting || !selectedJobID}>
@@ -197,6 +227,7 @@ export default function DeploymentsPage() {
                   <th>Port</th>
                   <th>Job</th>
                   <th>Status</th>
+                  <th>Access</th>
                   <th>Root</th>
                   <th>Created</th>
                   <th>Actions</th>
@@ -216,6 +247,12 @@ export default function DeploymentsPage() {
                     </td>
                     <td>
                       <span className={`status-badge status-badge--${d.status}`}>{d.status}</span>
+                    </td>
+                    <td className="truncate-cell">
+                      <div className="stack stack--compact">
+                        <code className="truncate">{connectionTarget(d)}</code>
+                        {connectionHint(d) ? <span className="field-hint">{connectionHint(d)}</span> : null}
+                      </div>
                     </td>
                     <td><code>{d.root_path}</code></td>
                     <td>{formatDateTime(d.created_at)}</td>

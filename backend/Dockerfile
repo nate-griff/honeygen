@@ -1,4 +1,5 @@
-FROM golang:1.22-bookworm AS build-base
+ARG GO_VERSION=1.24
+FROM golang:${GO_VERSION}-bookworm AS build-base
 WORKDIR /src/backend
 COPY backend/go.mod backend/go.sum ./
 RUN go mod download
@@ -24,7 +25,7 @@ USER appuser
 FROM runtime-base AS api
 USER root
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends wget wkhtmltopdf \
+    && apt-get install -y --no-install-recommends samba wget wkhtmltopdf \
     && rm -rf /var/lib/apt/lists/*
 USER appuser
 COPY --chown=appuser:appuser --from=build-api /out/api /app/api

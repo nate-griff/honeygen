@@ -9,6 +9,8 @@ import (
 func TestLoadMergesDefaultsConfigFileAndEnvironment(t *testing.T) {
 	t.Setenv("APP_ENV", "production")
 	t.Setenv("HTTP_ADDR", ":9099")
+	t.Setenv("FTP_PUBLIC_HOST", "127.0.0.1")
+	t.Setenv("FTP_PASSIVE_PORTS", "9100-9199")
 	t.Setenv("LLM_API_KEY", "env-key")
 	t.Setenv("INTERNAL_API_BASE_URL", "http://api.internal:8080")
 	t.Setenv("INTERNAL_EVENT_INGEST_TOKEN", "env-internal-token")
@@ -58,6 +60,12 @@ func TestLoadMergesDefaultsConfigFileAndEnvironment(t *testing.T) {
 	}
 	if cfg.InternalAPIBaseURL != "http://api.internal:8080" {
 		t.Fatalf("InternalAPIBaseURL = %q, want %q", cfg.InternalAPIBaseURL, "http://api.internal:8080")
+	}
+	if cfg.FTPPublicHost != "127.0.0.1" {
+		t.Fatalf("FTPPublicHost = %q, want %q", cfg.FTPPublicHost, "127.0.0.1")
+	}
+	if cfg.FTPPassivePorts != "9100-9199" {
+		t.Fatalf("FTPPassivePorts = %q, want %q", cfg.FTPPassivePorts, "9100-9199")
 	}
 	if cfg.InternalEventIngestToken != "env-internal-token" {
 		t.Fatalf("InternalEventIngestToken = %q, want %q", cfg.InternalEventIngestToken, "env-internal-token")

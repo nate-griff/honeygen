@@ -241,7 +241,7 @@
 - [x] Add HTTP protocol support for deployments
 - [x] Add FTP protocol support for deployments (goftp/server/v2)
 - [x] Add NFS protocol support for deployments (go-nfs NFSv3)
-- [ ] Add SMB protocol support (requires samba — not yet implemented)
+- [x] Add SMB protocol support (Samba `smbd` managed by deployment manager)
 
 ## Stretch Goals
 - [ ] Add Postgres support

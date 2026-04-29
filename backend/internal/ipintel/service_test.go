@@ -163,6 +163,39 @@ func TestService_CacheHitAvoidsRepeatLookup(t *testing.T) {
 	}
 }
 
+func TestService_StaleCacheTriggersFreshLookup(t *testing.T) {
+	db := openTestDB(t)
+	geo := &stubGeoIP{
+		record: ipintel.GeoIPRecord{CountryCode: "DE", Country: "Germany"},
+	}
+	cache := ipintel.NewCache(db)
+	svc := ipintel.NewService(cache, geo, &stubWHOIS{})
+
+	if _, err := svc.Enrich(context.Background(), "5.6.7.8"); err != nil {
+		t.Fatalf("first Enrich() error = %v", err)
+	}
+	callsAfterFirst := geo.calls
+
+	if _, err := db.ExecContext(context.Background(), `
+		UPDATE ip_intel_cache
+		SET enriched_at = '2000-01-01T00:00:00Z', updated_at = '2000-01-01T00:00:00Z'
+		WHERE ip = '5.6.7.8'
+	`); err != nil {
+		t.Fatalf("mark stale cache entry error = %v", err)
+	}
+
+	result, err := svc.Enrich(context.Background(), "5.6.7.8")
+	if err != nil {
+		t.Fatalf("second Enrich() error = %v", err)
+	}
+	if geo.calls != callsAfterFirst+1 {
+		t.Fatalf("GeoIP calls = %d, want %d after stale cache refresh", geo.calls, callsAfterFirst+1)
+	}
+	if result.CountryCode != "DE" {
+		t.Errorf("CountryCode = %q, want %q", result.CountryCode, "DE")
+	}
+}
+
 func TestService_GeoIPFailureStillReturnsPartialResult(t *testing.T) {
 	geo := &stubGeoIP{err: errors.New("mmdb unavailable")}
 	whois := &stubWHOIS{

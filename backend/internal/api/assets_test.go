@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"mime/multipart"
@@ -16,6 +17,7 @@ import (
 	"github.com/natet/honeygen/backend/internal/assets"
 	"github.com/natet/honeygen/backend/internal/config"
 	"github.com/natet/honeygen/backend/internal/models"
+	"github.com/natet/honeygen/backend/internal/storage"
 )
 
 func TestAssetContentEndpointDoesNotInlineDOCXPreviewEvenIfMarkedPreviewable(t *testing.T) {
@@ -261,6 +263,67 @@ func TestAssetUploadEndpointEnforcesMaxUploadSize(t *testing.T) {
 	assertAPIErrorResponse(t, rec, http.StatusRequestEntityTooLarge, "", models.APIErrorResponse{
 		Error: models.APIError{Code: "upload_too_large", Message: "file exceeds the maximum upload size"},
 	})
+}
+
+func TestAssetUploadEndpointCleansUpAssetRecordWhenStorageWriteFails(t *testing.T) {
+	application := newTestAPIApp(t)
+	application.Storage = storage.NewFilesystem("")
+	router := NewRouter(application)
+	seedCompletedGenerationJob(t, application, "northbridge-financial", "upload-job-write-fail")
+
+	req, contentType := buildUploadMultipartRequest(t, "upload-job-write-fail", "public/file.txt", "file.txt", []byte("data"))
+	authReq := authenticatedRequest(t, router, http.MethodPost, "/api/assets/upload", req.Body)
+	authReq.Header.Set("Content-Type", contentType)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, authReq)
+
+	assertAPIErrorResponse(t, rec, http.StatusInternalServerError, "", models.APIErrorResponse{
+		Error: models.APIError{Code: "upload_failed", Message: "failed to store uploaded file"},
+	})
+
+	items, err := application.AssetRepo.List(context.Background(), assets.ListOptions{GenerationJobID: "upload-job-write-fail", Limit: 10})
+	if err != nil {
+		t.Fatalf("AssetRepo.List() error = %v", err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("AssetRepo.List() returned %d items, want 0 after failed upload", len(items))
+	}
+}
+
+func TestStoreUploadedAssetContentUsesFreshContextForRollback(t *testing.T) {
+	expiredCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	deleteCalled := false
+	err := storeUploadedAssetContent(
+		expiredCtx,
+		"generated/world/job/public/file.txt",
+		[]byte("data"),
+		"asset-timeout",
+		func(ctx context.Context, relativePath string, data []byte) (storage.StoredFile, error) {
+			return storage.StoredFile{}, ctx.Err()
+		},
+		func(ctx context.Context, assetID string) error {
+			deleteCalled = true
+			if assetID != "asset-timeout" {
+				t.Fatalf("assetID = %q, want %q", assetID, "asset-timeout")
+			}
+			if err := ctx.Err(); err != nil {
+				t.Fatalf("rollback ctx err = %v, want live context", err)
+			}
+			if _, ok := ctx.Deadline(); !ok {
+				t.Fatal("rollback ctx missing deadline")
+			}
+			return nil
+		},
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+	)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("storeUploadedAssetContent() error = %v, want %v", err, context.Canceled)
+	}
+	if !deleteCalled {
+		t.Fatal("delete callback was not called")
+	}
 }
 
 func TestAssetUploadEndpointRequiresGenerationJobID(t *testing.T) {

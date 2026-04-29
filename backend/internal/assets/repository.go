@@ -12,9 +12,12 @@ import (
 	"time"
 
 	appdb "github.com/natet/honeygen/backend/internal/db"
+	"modernc.org/sqlite"
+	sqlite3 "modernc.org/sqlite/lib"
 )
 
 var ErrNotFound = errors.New("asset not found")
+var ErrPathConflict = errors.New("asset path conflict")
 
 type Asset struct {
 	ID              string    `json:"id"`
@@ -67,6 +70,9 @@ func (r *Repository) Create(ctx context.Context, asset Asset) (Asset, error) {
 		)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, asset.ID, asset.GenerationJobID, asset.WorldModelID, asset.SourceType, asset.RenderedType, asset.Path, asset.MIMEType, asset.SizeBytes, string(tagsJSON), boolToInt(asset.Previewable), asset.Checksum); err != nil {
+		if isDuplicateAssetPathError(err) {
+			return Asset{}, ErrPathConflict
+		}
 		return Asset{}, fmt.Errorf("create asset %q: %w", asset.ID, err)
 	}
 
@@ -90,6 +96,21 @@ func (r *Repository) Get(ctx context.Context, id string) (Asset, error) {
 	}
 
 	return asset, nil
+}
+
+func (r *Repository) Delete(ctx context.Context, id string) error {
+	result, err := r.db.ExecContext(ctx, `DELETE FROM assets WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("delete asset %q: %w", id, err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read deleted asset rows for %q: %w", id, err)
+	}
+	if rowsAffected == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 func (r *Repository) FindByPath(ctx context.Context, path string) (Asset, error) {
@@ -367,4 +388,19 @@ func boolToInt(value bool) int {
 		return 1
 	}
 	return 0
+}
+
+func isDuplicateAssetPathError(err error) bool {
+	var sqliteErr *sqlite.Error
+	if !errors.As(err, &sqliteErr) {
+		return false
+	}
+
+	switch sqliteErr.Code() {
+	case sqlite3.SQLITE_CONSTRAINT_UNIQUE, sqlite3.SQLITE_CONSTRAINT_PRIMARYKEY:
+		message := strings.ToLower(sqliteErr.Error())
+		return strings.Contains(message, "assets.path") || strings.Contains(message, "idx_assets_path_unique")
+	default:
+		return false
+	}
 }

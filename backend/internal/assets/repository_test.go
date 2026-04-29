@@ -3,6 +3,7 @@ package assets
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"testing"
 
@@ -190,6 +191,48 @@ func TestRepositoryDeleteByJobIDDeletesAllAssetsForLargeJob(t *testing.T) {
 	}
 	if len(remaining) != 0 {
 		t.Fatalf("List() after bulk delete = %d assets, want 0", len(remaining))
+	}
+}
+
+func TestRepositoryCreateRejectsDuplicatePath(t *testing.T) {
+	t.Parallel()
+
+	repository := NewRepository(newAssetsTestDatabase(t))
+	ctx := context.Background()
+
+	first := Asset{
+		ID:              "asset-1",
+		GenerationJobID: "job-1",
+		WorldModelID:    "world-1",
+		SourceType:      "generated",
+		RenderedType:    "text",
+		Path:            "generated/world-1/job-1/public/duplicate.txt",
+		MIMEType:        "text/plain",
+		SizeBytes:       5,
+		Previewable:     true,
+		Checksum:        "sum-1",
+	}
+	if _, err := repository.Create(ctx, first); err != nil {
+		t.Fatalf("Create(first) error = %v", err)
+	}
+
+	_, err := repository.Create(ctx, Asset{
+		ID:              "asset-2",
+		GenerationJobID: "job-1",
+		WorldModelID:    "world-1",
+		SourceType:      "upload",
+		RenderedType:    "text",
+		Path:            first.Path,
+		MIMEType:        "text/plain",
+		SizeBytes:       6,
+		Previewable:     true,
+		Checksum:        "sum-2",
+	})
+	if err == nil {
+		t.Fatal("Create(duplicate) error = nil, want ErrPathConflict")
+	}
+	if !errors.Is(err, ErrPathConflict) {
+		t.Fatalf("Create(duplicate) error = %v, want %v", err, ErrPathConflict)
 	}
 }
 

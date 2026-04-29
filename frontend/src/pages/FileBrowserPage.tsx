@@ -10,10 +10,10 @@ import { AssetPreview } from "../components/assets/AssetPreview";
 import { AssetTree } from "../components/assets/AssetTree";
 import { EmptyState } from "../components/layout/EmptyState";
 import { ErrorAlert } from "../components/layout/ErrorAlert";
-import { APIClientError } from "../api/client";
 import type { Asset, AssetContentResponse, AssetTreeNode } from "../types/assets";
 import type { GenerationJob } from "../types/generation";
 import type { WorldModelSummary } from "../types/worldModels";
+import { getUploadErrorMessage } from "./fileBrowserUploadErrors";
 
 interface FileBrowserLoaderData {
   models: WorldModelSummary[];
@@ -112,38 +112,27 @@ export default function FileBrowserPage() {
     setUploadLoading(true);
     setUploadError(null);
 
-    try {
-      const created = await uploadAsset({
-        generation_job_id: selectedGenerationJobID,
-        target_path: uploadTargetPath.trim(),
-        file: uploadFile,
-      });
+      try {
+        const created = await uploadAsset({
+          generation_job_id: selectedGenerationJobID,
+          target_path: uploadTargetPath.trim(),
+          file: uploadFile,
+        });
 
-      setUploadFile(null);
-      setUploadTargetPath("");
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
+        setUploadFile(null);
+        setUploadTargetPath("");
+        if (fileInputRef.current) {
+          fileInputRef.current.value = "";
+        }
+        setUploadLoading(false);
 
-      updateQuery({
-        world_model_id: selectedWorldModelID,
-        generation_job_id: selectedGenerationJobID,
-        asset_id: created.id,
+        updateQuery({
+          world_model_id: selectedWorldModelID,
+          generation_job_id: selectedGenerationJobID,
+          asset_id: created.id,
       });
     } catch (error) {
-      if (error instanceof APIClientError) {
-        if (error.code === "upload_conflict") {
-          setUploadError("A file already exists at that path. Uploads cannot overwrite existing files.");
-        } else if (error.code === "job_not_completed") {
-          setUploadError("Uploads are only allowed for completed generation jobs.");
-        } else if (error.code === "validation_error") {
-          setUploadError(`Validation error: ${error.message}`);
-        } else {
-          setUploadError(error.message || "Upload failed. Please try again.");
-        }
-      } else {
-        setUploadError("Upload failed. Please try again.");
-      }
+      setUploadError(getUploadErrorMessage(error));
       setUploadLoading(false);
     }
   }
@@ -200,7 +189,7 @@ export default function FileBrowserPage() {
       {canUpload && (
         <Panel
           title="Upload file"
-          subtitle={`Add a custom file to job ${selectedGenerationJobID}. Max 32 MB. Existing files cannot be overwritten.`}
+          subtitle={`Add a custom file to job ${selectedGenerationJobID}. Server-enforced upload limit defaults to 25 MB and never exceeds 100 MB. Existing files cannot be overwritten.`}
         >
           <form className="stack stack--compact" onSubmit={handleUpload}>
             <div className="form-grid">

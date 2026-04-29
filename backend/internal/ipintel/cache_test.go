@@ -118,3 +118,36 @@ func TestCache_SetOverwritesExistingEntry(t *testing.T) {
 		t.Errorf("Country = %q, want %q", got.Country, "Germany")
 	}
 }
+
+func TestCache_GetReturnsMissForStaleEntry(t *testing.T) {
+	db := openTestDB(t)
+	cache := ipintel.NewCache(db)
+	ctx := context.Background()
+
+	if err := cache.Set(ctx, ipintel.IPIntelResult{
+		IP:      "7.7.7.7",
+		Status:  ipintel.StatusEnriched,
+		Country: "Old Country",
+		Source:  "cache",
+	}); err != nil {
+		t.Fatalf("Set() error = %v", err)
+	}
+
+	_, err := cache.Get(ctx, "7.7.7.7")
+	if err != nil {
+		t.Fatalf("Get() fresh error = %v", err)
+	}
+
+	if _, err := db.ExecContext(ctx, `
+		UPDATE ip_intel_cache
+		SET enriched_at = '2000-01-01T00:00:00Z', updated_at = '2000-01-01T00:00:00Z'
+		WHERE ip = '7.7.7.7'
+	`); err != nil {
+		t.Fatalf("mark stale cache entry error = %v", err)
+	}
+
+	_, err = cache.Get(ctx, "7.7.7.7")
+	if err != ipintel.ErrCacheMiss {
+		t.Fatalf("Get() stale error = %v, want %v", err, ipintel.ErrCacheMiss)
+	}
+}

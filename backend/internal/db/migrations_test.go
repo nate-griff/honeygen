@@ -62,6 +62,7 @@ func TestMigrateCreatesSpecColumns(t *testing.T) {
 	assertColumnExists(t, db, "events", "status_code")
 	assertColumnExists(t, db, "events", "bytes_sent")
 	assertColumnExists(t, db, "events", "timestamp")
+	assertIndexExists(t, db, "idx_assets_path_unique")
 	assertIndexExists(t, db, "idx_events_source_ip")
 	assertIndexExists(t, db, "idx_deployments_port_unique")
 }
@@ -135,6 +136,7 @@ CREATE TABLE settings (
 	assertColumnExists(t, db, "events", "timestamp")
 	assertColumnExists(t, db, "events", "event_type")
 	assertColumnExists(t, db, "events", "path")
+	assertIndexExists(t, db, "idx_assets_path_unique")
 	assertIndexExists(t, db, "idx_events_source_ip")
 	assertIndexExists(t, db, "idx_deployments_port_unique")
 

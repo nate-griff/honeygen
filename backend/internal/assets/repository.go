@@ -112,6 +112,15 @@ func (r *Repository) FindByPath(ctx context.Context, path string) (Asset, error)
 	return asset, nil
 }
 
+// DeleteByJobID removes all asset metadata records that belong to the given
+// generation job. If no assets exist for the job the call is a no-op.
+func (r *Repository) DeleteByJobID(ctx context.Context, jobID string) error {
+	if _, err := r.db.ExecContext(ctx, `DELETE FROM assets WHERE generation_job_id = ?`, jobID); err != nil {
+		return fmt.Errorf("delete assets for job %q: %w", jobID, err)
+	}
+	return nil
+}
+
 func (r *Repository) List(ctx context.Context, options ListOptions) ([]Asset, error) {
 	query := `
 		SELECT id, generation_job_id, world_model_id, source_type, rendered_type, path,

@@ -16,6 +16,7 @@ import (
 
 var ErrJobNotFound = errors.New("generation job not found")
 var ErrJobNotCancelable = errors.New("generation job is not running")
+var ErrJobNotDeletable = errors.New("generation job cannot be deleted: not in a terminal state")
 
 const (
 	StatusPending   = "pending"
@@ -160,6 +161,21 @@ func (s *JobStore) SetCanceled(ctx context.Context, id string, summary Summary, 
 	return s.updateIfStatusIn(ctx, id, StatusCanceled, summary, message, false, true, []string{StatusPending, StatusRunning})
 }
 
+func (s *JobStore) Delete(ctx context.Context, id string) error {
+	result, err := s.db.ExecContext(ctx, `DELETE FROM generation_jobs WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("delete generation job %q: %w", id, err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("inspect delete generation job %q: %w", id, err)
+	}
+	if rowsAffected == 0 {
+		return ErrJobNotFound
+	}
+	return nil
+}
+
 func (s *JobStore) update(ctx context.Context, id, status string, summary Summary, errorMessage string, ensureStarted bool, complete bool) (Job, error) {
 	return s.updateIfStatusIn(ctx, id, status, summary, errorMessage, ensureStarted, complete, nil)
 }
@@ -218,6 +234,10 @@ func (s *JobStore) updateIfStatusIn(ctx context.Context, id, status string, summ
 
 func CanCancel(status string) bool {
 	return status == StatusPending || status == StatusRunning
+}
+
+func CanDelete(status string) bool {
+	return status == StatusCompleted || status == StatusFailed || status == StatusCanceled
 }
 
 func placeholders(count int) string {

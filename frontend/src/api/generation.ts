@@ -28,3 +28,9 @@ export function cancelGenerationJob(id: string): Promise<GenerationJob> {
     method: "POST",
   });
 }
+
+export function deleteGenerationJob(id: string): Promise<void> {
+  return apiRequest<void>(`/api/generation/jobs/${id}`, {
+    method: "DELETE",
+  });
+}

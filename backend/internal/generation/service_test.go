@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -363,6 +364,189 @@ func TestServiceCloseCancelsRunningJobs(t *testing.T) {
 	}
 }
 
+func TestServiceDeleteRemovesCompletedJobFilesAndRecords(t *testing.T) {
+	t.Parallel()
+
+	database := newGenerationTestDatabase(t)
+	repo := worldmodels.NewRepository(database)
+	if _, err := repo.Create(context.Background(), StoredWorldModelForTest("world-1")); err != nil {
+		t.Fatalf("Create() world model error = %v", err)
+	}
+
+	root := t.TempDir()
+	assetRepo := assets.NewRepository(database)
+	service := NewService(ServiceConfig{
+		WorldModels: repo,
+		Planner:     NewPlanner(),
+		Provider:    generationStubProvider{},
+		Jobs:        NewJobStore(database),
+		Assets:      assetRepo,
+		Storage:     storage.NewFilesystem(root),
+		Renderers: rendering.NewRegistry(rendering.RegistryConfig{
+			PDF: rendering.StaticPDFRenderer([]byte("%PDF-1.4\n%stub\n")),
+		}),
+	})
+	t.Cleanup(func() { _ = service.Close() })
+
+	job, err := service.Run(context.Background(), RunRequest{WorldModelID: "world-1"})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	waitForJobStatus(t, NewJobStore(database), job.ID, StatusCompleted)
+
+	items, err := assetRepo.List(context.Background(), assets.ListOptions{GenerationJobID: job.ID, Limit: 200})
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if len(items) == 0 {
+		t.Fatal("no assets generated before delete")
+	}
+
+	if err := service.Delete(context.Background(), job.ID); err != nil {
+		t.Fatalf("Delete() error = %v", err)
+	}
+
+	_, err = NewJobStore(database).Get(context.Background(), job.ID)
+	if !errors.Is(err, ErrJobNotFound) {
+		t.Fatalf("Get() after Delete() error = %v, want %v", err, ErrJobNotFound)
+	}
+
+	afterItems, err := assetRepo.List(context.Background(), assets.ListOptions{GenerationJobID: job.ID, Limit: 200})
+	if err != nil {
+		t.Fatalf("List() after Delete() error = %v", err)
+	}
+	if len(afterItems) != 0 {
+		t.Fatalf("asset records still present after delete: %d", len(afterItems))
+	}
+
+	jobDir := filepath.Join(root, "generated", "world-1", job.ID)
+	if _, err := os.Stat(jobDir); !os.IsNotExist(err) {
+		t.Fatalf("job directory still exists after delete: %v", err)
+	}
+}
+
+func TestServiceDeleteReturnsNotDeletableForNonTerminalJob(t *testing.T) {
+	t.Parallel()
+
+	database := newGenerationTestDatabase(t)
+	repo := worldmodels.NewRepository(database)
+	if _, err := repo.Create(context.Background(), StoredWorldModelForTest("world-1")); err != nil {
+		t.Fatalf("Create() world model error = %v", err)
+	}
+
+	provider := blockingGenerationProvider{
+		started: make(chan struct{}, 1),
+		release: make(chan struct{}),
+	}
+	service := NewService(ServiceConfig{
+		WorldModels: repo,
+		Planner:     NewPlanner(),
+		Provider:    provider,
+		Jobs:        NewJobStore(database),
+		Assets:      assets.NewRepository(database),
+		Storage:     storage.NewFilesystem(t.TempDir()),
+		Renderers: rendering.NewRegistry(rendering.RegistryConfig{
+			PDF: rendering.StaticPDFRenderer([]byte("%PDF-1.4\n%stub\n")),
+		}),
+	})
+	t.Cleanup(func() {
+		close(provider.release)
+		_ = service.Close()
+	})
+
+	job, err := service.Run(context.Background(), RunRequest{WorldModelID: "world-1"})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	waitForSignal(t, provider.started, "background generation did not start")
+
+	err = service.Delete(context.Background(), job.ID)
+	if !errors.Is(err, ErrJobNotDeletable) {
+		t.Fatalf("Delete() running job error = %v, want %v", err, ErrJobNotDeletable)
+	}
+}
+
+func TestServiceDeleteReturnsNotFoundForMissingJob(t *testing.T) {
+	t.Parallel()
+
+	database := newGenerationTestDatabase(t)
+	service := NewService(ServiceConfig{
+		WorldModels: worldmodels.NewRepository(database),
+		Planner:     NewPlanner(),
+		Provider:    generationStubProvider{},
+		Jobs:        NewJobStore(database),
+		Assets:      assets.NewRepository(database),
+		Storage:     storage.NewFilesystem(t.TempDir()),
+		Renderers:   rendering.NewRegistry(rendering.RegistryConfig{}),
+	})
+	t.Cleanup(func() { _ = service.Close() })
+
+	err := service.Delete(context.Background(), "job_nonexistent")
+	if !errors.Is(err, ErrJobNotFound) {
+		t.Fatalf("Delete() error = %v, want %v", err, ErrJobNotFound)
+	}
+}
+
+func TestServiceDeleteKeepsAssetRecordsWhenFileDeletionFails(t *testing.T) {
+	t.Parallel()
+
+	database := newGenerationTestDatabase(t)
+	repo := worldmodels.NewRepository(database)
+	if _, err := repo.Create(context.Background(), StoredWorldModelForTest("world-1")); err != nil {
+		t.Fatalf("Create() world model error = %v", err)
+	}
+
+	root := t.TempDir()
+	assetRepo := assets.NewRepository(database)
+	baseStorage := storage.NewFilesystem(root)
+	service := NewService(ServiceConfig{
+		WorldModels: repo,
+		Planner:     NewPlanner(),
+		Provider:    generationStubProvider{},
+		Jobs:        NewJobStore(database),
+		Assets:      assetRepo,
+		Storage: failingDeleteDirStorage{
+			Filesystem: baseStorage,
+			err:        errors.New("delete dir failed"),
+		},
+		Renderers: rendering.NewRegistry(rendering.RegistryConfig{
+			PDF: rendering.StaticPDFRenderer([]byte("%PDF-1.4\n%stub\n")),
+		}),
+	})
+	t.Cleanup(func() { _ = service.Close() })
+
+	job, err := service.Run(context.Background(), RunRequest{WorldModelID: "world-1"})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	waitForJobStatus(t, NewJobStore(database), job.ID, StatusCompleted)
+
+	beforeItems, err := assetRepo.List(context.Background(), assets.ListOptions{GenerationJobID: job.ID, Limit: 200})
+	if err != nil {
+		t.Fatalf("List() before Delete() error = %v", err)
+	}
+	if len(beforeItems) == 0 {
+		t.Fatal("no assets generated before delete")
+	}
+
+	err = service.Delete(context.Background(), job.ID)
+	if err == nil || !strings.Contains(err.Error(), "delete job files") {
+		t.Fatalf("Delete() error = %v, want file deletion failure", err)
+	}
+
+	afterItems, err := assetRepo.List(context.Background(), assets.ListOptions{GenerationJobID: job.ID, Limit: 200})
+	if err != nil {
+		t.Fatalf("List() after failed Delete() error = %v", err)
+	}
+	if len(afterItems) != len(beforeItems) {
+		t.Fatalf("List() after failed Delete() = %d assets, want %d", len(afterItems), len(beforeItems))
+	}
+
+	if _, err := NewJobStore(database).Get(context.Background(), job.ID); err != nil {
+		t.Fatalf("Get() after failed Delete() error = %v, want job to remain", err)
+	}
+}
+
 func newGenerationTestDatabase(t *testing.T) *sql.DB {
 	t.Helper()
 
@@ -500,6 +684,23 @@ func (w *blockingAssetWriter) Create(ctx context.Context, asset assets.Asset) (a
 
 	<-w.release
 	return w.repo.Create(ctx, asset)
+}
+
+func (w *blockingAssetWriter) List(ctx context.Context, options assets.ListOptions) ([]assets.Asset, error) {
+	return w.repo.List(ctx, options)
+}
+
+func (w *blockingAssetWriter) DeleteByJobID(ctx context.Context, jobID string) error {
+	return w.repo.DeleteByJobID(ctx, jobID)
+}
+
+type failingDeleteDirStorage struct {
+	*storage.Filesystem
+	err error
+}
+
+func (s failingDeleteDirStorage) DeleteDir(context.Context, string) error {
+	return s.err
 }
 
 func waitForJobStatus(t *testing.T, store *JobStore, jobID, wantStatus string) Job {

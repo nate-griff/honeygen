@@ -4,13 +4,17 @@ import { EmptyState } from "../layout/EmptyState";
 import { StatusBadge } from "../layout/StatusBadge";
 import type { GenerationJob } from "../../types/generation";
 
+const TERMINAL_STATUSES = new Set(["completed", "failed", "canceled"]);
+
 interface GenerationJobsListProps {
   jobs: GenerationJob[];
   cancelingJobIDs?: string[];
+  deletingJobIDs?: string[];
   onCancel?: (jobID: string) => void;
+  onDelete?: (jobID: string) => void;
 }
 
-export function GenerationJobsList({ jobs, cancelingJobIDs = [], onCancel }: GenerationJobsListProps) {
+export function GenerationJobsList({ jobs, cancelingJobIDs = [], deletingJobIDs = [], onCancel, onDelete }: GenerationJobsListProps) {
   if (jobs.length === 0) {
     return <EmptyState title="No generation jobs" message="Trigger a run to populate live job history." />;
   }
@@ -68,6 +72,16 @@ export function GenerationJobsList({ jobs, cancelingJobIDs = [], onCancel }: Gen
                 type="button"
               >
                 {cancelingJobIDs.includes(job.id) ? "Canceling…" : "Cancel job"}
+              </button>
+            ) : null}
+            {onDelete && TERMINAL_STATUSES.has(job.status) ? (
+              <button
+                className="button button--small button--danger"
+                disabled={deletingJobIDs.includes(job.id)}
+                onClick={() => onDelete(job.id)}
+                type="button"
+              >
+                {deletingJobIDs.includes(job.id) ? "Deleting…" : "Delete job"}
               </button>
             ) : null}
             <Link className="button button--ghost" to={`/files?world_model_id=${job.world_model_id}&generation_job_id=${job.id}`}>

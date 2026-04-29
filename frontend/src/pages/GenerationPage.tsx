@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLoaderData, useNavigate } from "react-router-dom";
-import { cancelGenerationJob, listGenerationJobs, runGeneration } from "../api/generation";
+import { cancelGenerationJob, deleteGenerationJob, listGenerationJobs, runGeneration } from "../api/generation";
 import { getStatus } from "../api/status";
 import { listWorldModels } from "../api/worldModels";
 import { ErrorAlert } from "../components/layout/ErrorAlert";
@@ -39,15 +39,19 @@ export default function GenerationPage() {
   const [selectedWorldModelID, setSelectedWorldModelID] = useState(loaderData.selectedWorldModelID);
   const [runError, setRunError] = useState<string>();
   const [cancelError, setCancelError] = useState<string>();
+  const [deleteError, setDeleteError] = useState<string>();
   const [pollError, setPollError] = useState<string>();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [cancelingJobIDs, setCancelingJobIDs] = useState<string[]>([]);
+  const [deletingJobIDs, setDeletingJobIDs] = useState<string[]>([]);
 
   useEffect(() => {
     setJobs(loaderData.jobs);
     setSelectedWorldModelID(loaderData.selectedWorldModelID);
     setCancelError(undefined);
     setCancelingJobIDs([]);
+    setDeleteError(undefined);
+    setDeletingJobIDs([]);
     setPollError(undefined);
   }, [loaderData.jobs, loaderData.selectedWorldModelID]);
 
@@ -132,6 +136,20 @@ export default function GenerationPage() {
     }
   }
 
+  async function handleDelete(jobID: string) {
+    setDeleteError(undefined);
+    setPollError(undefined);
+    setDeletingJobIDs((current) => [...current, jobID]);
+    try {
+      await deleteGenerationJob(jobID);
+      setJobs((currentJobs) => currentJobs.filter((job) => job.id !== jobID));
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error.message : "Unable to delete generation job");
+    } finally {
+      setDeletingJobIDs((current) => current.filter((id) => id !== jobID));
+    }
+  }
+
   return (
     <div className="stack">
       <PageHeader
@@ -173,8 +191,9 @@ export default function GenerationPage() {
       </div>
       <Panel title="Recent jobs" subtitle="Latest live jobs for the selected world model">
         {cancelError ? <ErrorAlert message={cancelError} /> : null}
+        {deleteError ? <ErrorAlert message={deleteError} /> : null}
         {pollError ? <ErrorAlert message={pollError} /> : null}
-        <GenerationJobsList cancelingJobIDs={cancelingJobIDs} jobs={jobs} onCancel={handleCancel} />
+        <GenerationJobsList cancelingJobIDs={cancelingJobIDs} deletingJobIDs={deletingJobIDs} jobs={jobs} onCancel={handleCancel} onDelete={handleDelete} />
       </Panel>
     </div>
   );

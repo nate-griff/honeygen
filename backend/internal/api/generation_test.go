@@ -15,6 +15,104 @@ import (
 	"github.com/natet/honeygen/backend/internal/rendering"
 )
 
+func TestGenerationJobDeleteEndpointDeletesCompletedJob(t *testing.T) {
+	application := newTestAPIAppWithConfig(t, testProviderConfig(t, "https://provider.example/v1"))
+	router := NewRouter(application)
+	application.Provider = generationStubProvider{}
+	application.Renderers = rendering.NewRegistry(rendering.RegistryConfig{
+		PDF: rendering.StaticPDFRenderer([]byte("%PDF-1.4\n%stub\n")),
+	})
+
+	runReq := authenticatedRequest(t, router, http.MethodPost, "/api/generation/run", strings.NewReader(`{"world_model_id":"northbridge-financial"}`))
+	runReq.Header.Set("Content-Type", "application/json")
+	runRec := httptest.NewRecorder()
+	router.ServeHTTP(runRec, runReq)
+	if runRec.Code != http.StatusCreated {
+		t.Fatalf("run status code = %d, want %d, body=%s", runRec.Code, http.StatusCreated, runRec.Body.String())
+	}
+
+	var job struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(runRec.Body.Bytes(), &job); err != nil {
+		t.Fatalf("json.Unmarshal(run) error = %v", err)
+	}
+
+	waitForJobStatus(t, application.JobStore, job.ID, generation.StatusCompleted)
+
+	deleteReq := authenticatedRequest(t, router, http.MethodDelete, "/api/generation/jobs/"+job.ID, nil)
+	deleteRec := httptest.NewRecorder()
+	router.ServeHTTP(deleteRec, deleteReq)
+
+	if deleteRec.Code != http.StatusNoContent {
+		t.Fatalf("delete status code = %d, want %d, body=%s", deleteRec.Code, http.StatusNoContent, deleteRec.Body.String())
+	}
+
+	getReq := authenticatedRequest(t, router, http.MethodGet, "/api/generation/jobs/"+job.ID, nil)
+	getRec := httptest.NewRecorder()
+	router.ServeHTTP(getRec, getReq)
+	if getRec.Code != http.StatusNotFound {
+		t.Fatalf("get after delete status code = %d, want %d", getRec.Code, http.StatusNotFound)
+	}
+}
+
+func TestGenerationJobDeleteEndpointReturnsConflictForRunningJob(t *testing.T) {
+	application := newTestAPIAppWithConfig(t, testProviderConfig(t, "https://provider.example/v1"))
+	router := NewRouter(application)
+	provider := blockingGenerationProvider{
+		started: make(chan struct{}, 1),
+		release: make(chan struct{}),
+	}
+	application.Provider = provider
+	application.Renderers = rendering.NewRegistry(rendering.RegistryConfig{
+		PDF: rendering.StaticPDFRenderer([]byte("%PDF-1.4\n%stub\n")),
+	})
+
+	runReq := authenticatedRequest(t, router, http.MethodPost, "/api/generation/run", strings.NewReader(`{"world_model_id":"northbridge-financial"}`))
+	runReq.Header.Set("Content-Type", "application/json")
+	runRec := httptest.NewRecorder()
+	router.ServeHTTP(runRec, runReq)
+	if runRec.Code != http.StatusCreated {
+		t.Fatalf("run status code = %d, want %d, body=%s", runRec.Code, http.StatusCreated, runRec.Body.String())
+	}
+
+	var job struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(runRec.Body.Bytes(), &job); err != nil {
+		t.Fatalf("json.Unmarshal(run) error = %v", err)
+	}
+	waitForSignal(t, provider.started, "background generation did not start")
+	defer close(provider.release)
+
+	deleteReq := authenticatedRequest(t, router, http.MethodDelete, "/api/generation/jobs/"+job.ID, nil)
+	deleteRec := httptest.NewRecorder()
+	router.ServeHTTP(deleteRec, deleteReq)
+
+	assertAPIErrorResponse(t, deleteRec, http.StatusConflict, "", models.APIErrorResponse{
+		Error: models.APIError{
+			Code:    "generation_job_not_deletable",
+			Message: "generation job cannot be deleted",
+		},
+	})
+}
+
+func TestGenerationJobDeleteEndpointReturnsNotFoundForMissingJob(t *testing.T) {
+	application := newTestAPIApp(t)
+	router := NewRouter(application)
+
+	deleteReq := authenticatedRequest(t, router, http.MethodDelete, "/api/generation/jobs/job_nonexistent", nil)
+	deleteRec := httptest.NewRecorder()
+	router.ServeHTTP(deleteRec, deleteReq)
+
+	assertAPIErrorResponse(t, deleteRec, http.StatusNotFound, "", models.APIErrorResponse{
+		Error: models.APIError{
+			Code:    "not_found",
+			Message: "generation job not found",
+		},
+	})
+}
+
 func TestGenerationAndAssetsEndpointsRunBrowseAndPreview(t *testing.T) {
 	application := newTestAPIAppWithConfig(t, testProviderConfig(t, "https://provider.example/v1"))
 	router := NewRouter(application)

@@ -79,6 +79,32 @@ func (f *Filesystem) Delete(_ context.Context, relativePath string) error {
 	return nil
 }
 
+// DeleteFiles deletes each of the given relative paths. A missing file is not
+// an error (consistent with Delete). Any other OS-level failure is returned
+// immediately without attempting the remaining paths.
+func (f *Filesystem) DeleteFiles(ctx context.Context, paths []string) error {
+	for _, p := range paths {
+		if err := f.Delete(ctx, p); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// DeleteDir removes the directory rooted at relativePath and all of its
+// contents. If the directory does not exist the call is a no-op. The path is
+// validated against the same traversal rules as all other Filesystem methods.
+func (f *Filesystem) DeleteDir(_ context.Context, relativePath string) error {
+	_, fullPath, err := f.resolve(relativePath)
+	if err != nil {
+		return err
+	}
+	if err := os.RemoveAll(fullPath); err != nil {
+		return fmt.Errorf("delete directory %q: %w", relativePath, err)
+	}
+	return nil
+}
+
 func (f *Filesystem) resolve(relativePath string) (string, string, error) {
 	if f == nil || f.root == "" {
 		return "", "", fmt.Errorf("storage root is not configured")

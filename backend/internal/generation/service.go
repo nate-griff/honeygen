@@ -27,14 +27,17 @@ type worldModelReader interface {
 	Get(context.Context, string) (worldmodels.StoredWorldModel, error)
 }
 
-type assetWriter interface {
+type assetRepository interface {
 	Create(context.Context, assets.Asset) (assets.Asset, error)
+	List(context.Context, assets.ListOptions) ([]assets.Asset, error)
+	DeleteByJobID(context.Context, string) error
 }
 
 type fileStore interface {
 	Write(context.Context, string, []byte) (storage.StoredFile, error)
 	Read(context.Context, string) ([]byte, error)
 	Delete(context.Context, string) error
+	DeleteDir(context.Context, string) error
 }
 
 type ServiceConfig struct {
@@ -43,7 +46,7 @@ type ServiceConfig struct {
 	Provider          provider.Provider
 	ProviderProvider  func() provider.Provider
 	Jobs              *JobStore
-	Assets            assetWriter
+	Assets            assetRepository
 	Storage           fileStore
 	Renderers         rendering.Registry
 	RenderersProvider func() rendering.Registry
@@ -55,7 +58,7 @@ type Service struct {
 	planner     *Planner
 	provider    func() provider.Provider
 	jobs        *JobStore
-	assets      assetWriter
+	assets      assetRepository
 	storage     fileStore
 	renderers   func() rendering.Registry
 	lifecycle   context.Context
@@ -162,6 +165,34 @@ func (s *Service) Run(ctx context.Context, request RunRequest) (Job, error) {
 
 func (s *Service) Cancel(ctx context.Context, jobID string) (Job, error) {
 	return s.cancelJob(ctx, jobID, "generation canceled")
+}
+
+func (s *Service) Delete(ctx context.Context, jobID string) error {
+	job, err := s.jobs.Get(ctx, jobID)
+	if err != nil {
+		return err
+	}
+	if !CanDelete(job.Status) {
+		return ErrJobNotDeletable
+	}
+
+	jobDir, err := storage.JoinRelative("generated", job.WorldModelID, jobID)
+	if err != nil {
+		return fmt.Errorf("build job directory path for %q: %w", jobID, err)
+	}
+	if err := s.storage.DeleteDir(ctx, jobDir); err != nil {
+		return fmt.Errorf("delete job files for %q: %w", jobID, err)
+	}
+
+	if err := s.assets.DeleteByJobID(ctx, jobID); err != nil {
+		return fmt.Errorf("delete asset records for job %q: %w", jobID, err)
+	}
+
+	if err := s.jobs.Delete(ctx, jobID); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (s *Service) Close() error {

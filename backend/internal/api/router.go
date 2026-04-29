@@ -25,6 +25,7 @@ func NewRouter(application *app.APIApp) http.Handler {
 	mux.HandleFunc("/api/generation/jobs", protected(allowMethod(http.MethodGet, generationJobsListHandler(application))))
 	mux.HandleFunc("/api/generation/jobs/", protected(generationJobsRoutingHandler(application)))
 	mux.HandleFunc("/api/assets/tree", protected(allowMethod(http.MethodGet, assetsTreeHandler(application))))
+	mux.HandleFunc("/api/assets/upload", protected(allowMethod(http.MethodPost, assetsUploadHandler(application))))
 	mux.HandleFunc("/api/assets", protected(allowMethod(http.MethodGet, assetsListHandler(application))))
 	mux.HandleFunc("/api/assets/", protected(assetsItemHandler(application)))
 	mux.HandleFunc("/api/events", protected(allowMethod(http.MethodGet, eventsListHandler(application))))

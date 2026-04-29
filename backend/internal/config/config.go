@@ -7,6 +7,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -17,6 +18,9 @@ const (
 	defaultSQLitePath         = "/app/storage/sqlite/honeygen.db"
 	defaultGeneratedAssetsDir = "/app/storage/generated"
 	defaultInternalAPIBaseURL = "http://api:8080"
+
+	DefaultMaxUploadSizeBytes  int64 = 25 * 1024 * 1024  // 25 MB
+	AbsoluteMaxUploadSizeBytes int64 = 100 * 1024 * 1024 // 100 MB
 )
 
 type Config struct {
@@ -34,13 +38,36 @@ type Config struct {
 	StorageRoot                 string         `json:"storage_root"`
 	InternalAPIBaseURL          string         `json:"internal_api_base_url"`
 	ConfigFilePath              string         `json:"-"`
+	MaxUploadSizeBytes          int64          `json:"max_upload_size_bytes"`
 	Provider                    ProviderConfig `json:"provider"`
+	MaxMind                     MaxMindConfig  `json:"max_mind"`
+}
+
+// EffectiveMaxUploadSizeBytes returns the configured upload size limit,
+// applying the 25 MB default when unset and clamping to the 100 MB hard cap.
+func (c Config) EffectiveMaxUploadSizeBytes() int64 {
+	if c.MaxUploadSizeBytes <= 0 {
+		return DefaultMaxUploadSizeBytes
+	}
+	if c.MaxUploadSizeBytes > AbsoluteMaxUploadSizeBytes {
+		return AbsoluteMaxUploadSizeBytes
+	}
+	return c.MaxUploadSizeBytes
 }
 
 type ProviderConfig struct {
 	BaseURL string `json:"base_url"`
 	APIKey  string `json:"api_key"`
 	Model   string `json:"model"`
+}
+
+// MaxMindConfig holds credentials and paths for MaxMind GeoLite2 lookups.
+// All fields are optional; missing credentials cause GeoIP enrichment to be
+// skipped gracefully.
+type MaxMindConfig struct {
+	AccountID  string `json:"account_id"`
+	LicenseKey string `json:"-"` // sensitive – env only
+	DBPath     string `json:"db_path"`
 }
 
 func (p ProviderConfig) Ready() bool {
@@ -66,6 +93,7 @@ type fileConfig struct {
 	GeneratedAssetsDir       *string             `json:"generated_assets_dir"`
 	StorageRoot              *string             `json:"storage_root"`
 	InternalAPIBaseURL       *string             `json:"internal_api_base_url"`
+	MaxUploadSizeBytes       *int64              `json:"max_upload_size_bytes"`
 	Provider                 *fileProviderConfig `json:"provider"`
 }
 
@@ -136,9 +164,16 @@ func LoadWithDefaults(configPath string, defaults Config) (Config, error) {
 	applyEnvOverride(&cfg.Provider.BaseURL, "LLM_BASE_URL")
 	applyEnvOverride(&cfg.Provider.APIKey, "LLM_API_KEY")
 	applyEnvOverride(&cfg.Provider.Model, "LLM_MODEL")
+	applyEnvOverrideInt64(&cfg.MaxUploadSizeBytes, "MAX_UPLOAD_SIZE_BYTES")
+	applyEnvOverride(&cfg.MaxMind.AccountID, "MM_ACCOUNT_ID")
+	applyEnvOverride(&cfg.MaxMind.LicenseKey, "MM_LICENSE_KEY")
+	applyEnvOverride(&cfg.MaxMind.DBPath, "MM_DB_PATH")
 
 	if cfg.StorageRoot == "" {
 		cfg.StorageRoot = deriveStorageRoot(cfg.SQLitePath, cfg.GeneratedAssetsDir)
+	}
+	if cfg.MaxMind.DBPath == "" && cfg.StorageRoot != "" {
+		cfg.MaxMind.DBPath = cfg.StorageRoot + "/geoip/GeoLite2-City.mmdb"
 	}
 
 	var validationErrors []string
@@ -177,6 +212,7 @@ func applyFileConfig(cfg *Config, path string) error {
 	applyOptionalString(&cfg.GeneratedAssetsDir, fileCfg.GeneratedAssetsDir)
 	applyOptionalString(&cfg.StorageRoot, fileCfg.StorageRoot)
 	applyOptionalString(&cfg.InternalAPIBaseURL, fileCfg.InternalAPIBaseURL)
+	applyOptionalInt64(&cfg.MaxUploadSizeBytes, fileCfg.MaxUploadSizeBytes)
 	if fileCfg.Provider != nil {
 		applyOptionalString(&cfg.Provider.BaseURL, fileCfg.Provider.BaseURL)
 		applyOptionalString(&cfg.Provider.APIKey, fileCfg.Provider.APIKey)
@@ -198,9 +234,23 @@ func applyOptionalString(dst *string, value *string) {
 	}
 }
 
+func applyOptionalInt64(dst *int64, value *int64) {
+	if value != nil && *value > 0 {
+		*dst = *value
+	}
+}
+
 func applyEnvOverride(dst *string, key string) {
 	if value := os.Getenv(key); value != "" {
 		*dst = value
+	}
+}
+
+func applyEnvOverrideInt64(dst *int64, key string) {
+	if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+		if n, err := strconv.ParseInt(value, 10, 64); err == nil && n > 0 {
+			*dst = n
+		}
 	}
 }
 

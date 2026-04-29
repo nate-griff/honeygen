@@ -2,6 +2,7 @@ package events
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path"
@@ -9,9 +10,15 @@ import (
 	"time"
 
 	"github.com/natet/honeygen/backend/internal/assets"
+	"github.com/natet/honeygen/backend/internal/ipintel"
 )
 
 const InternalIngestTokenHeader = "X-Honeygen-Internal-Event-Token"
+
+// IPEnricher enriches an IP address with geographic and network intelligence.
+type IPEnricher interface {
+	Enrich(ctx context.Context, ip string) (ipintel.IPIntelResult, error)
+}
 
 type IngestRequest struct {
 	Timestamp  time.Time      `json:"timestamp"`
@@ -43,6 +50,7 @@ type Service struct {
 	repository *Repository
 	assets     assetFinder
 	now        func() time.Time
+	enricher   IPEnricher
 }
 
 func NewService(repository *Repository, assets assetFinder) *Service {
@@ -53,6 +61,11 @@ func NewService(repository *Repository, assets assetFinder) *Service {
 			return time.Now().UTC()
 		},
 	}
+}
+
+// SetIPEnricher attaches an IPEnricher to the service. Call before first use.
+func (s *Service) SetIPEnricher(e IPEnricher) {
+	s.enricher = e
 }
 
 func (s *Service) Ingest(ctx context.Context, request IngestRequest) (Event, error) {
@@ -109,6 +122,21 @@ func (s *Service) Ingest(ctx context.Context, request IngestRequest) (Event, err
 	}
 	if event.WorldModelID == "" {
 		event.WorldModelID = worldModelIDFromPath(normalizedPath)
+	}
+
+	// IP enrichment is best-effort: failure must not block event ingestion.
+	if s.enricher != nil && event.SourceIP != "" {
+		if intel, err := s.enricher.Enrich(ctx, event.SourceIP); err == nil {
+			if event.Metadata == nil {
+				event.Metadata = make(map[string]any)
+			}
+			var intelMap map[string]any
+			if b, err := json.Marshal(intel); err == nil {
+				if err := json.Unmarshal(b, &intelMap); err == nil {
+					event.Metadata["ip_intelligence"] = intelMap
+				}
+			}
+		}
 	}
 
 	return s.repository.Create(ctx, event)

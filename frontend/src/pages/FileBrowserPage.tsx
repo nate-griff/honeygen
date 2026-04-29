@@ -1,5 +1,6 @@
+import { useRef, useState } from "react";
 import { useLoaderData, useNavigate } from "react-router-dom";
-import { getAsset, getAssetContent, listAssetTree } from "../api/assets";
+import { getAsset, getAssetContent, listAssetTree, uploadAsset } from "../api/assets";
 import { listGenerationJobs } from "../api/generation";
 import { listWorldModels } from "../api/worldModels";
 import { PageHeader } from "../components/layout/PageHeader";
@@ -8,6 +9,7 @@ import { AssetMetadataCard } from "../components/assets/AssetMetadataCard";
 import { AssetPreview } from "../components/assets/AssetPreview";
 import { AssetTree } from "../components/assets/AssetTree";
 import { EmptyState } from "../components/layout/EmptyState";
+import { ErrorAlert } from "../components/layout/ErrorAlert";
 import { APIClientError } from "../api/client";
 import type { Asset, AssetContentResponse, AssetTreeNode } from "../types/assets";
 import type { GenerationJob } from "../types/generation";
@@ -76,6 +78,15 @@ export default function FileBrowserPage() {
   } = useLoaderData() as FileBrowserLoaderData;
   const navigate = useNavigate();
 
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadTargetPath, setUploadTargetPath] = useState("");
+  const [uploadLoading, setUploadLoading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const selectedJob = jobs.find((j) => j.id === selectedGenerationJobID) ?? null;
+  const canUpload = selectedJob?.status === "completed";
+
   function updateQuery(next: {
     world_model_id?: string;
     generation_job_id?: string;
@@ -92,6 +103,49 @@ export default function FileBrowserPage() {
       params.set("asset_id", next.asset_id);
     }
     navigate(`/files${params.toString() ? `?${params.toString()}` : ""}`);
+  }
+
+  async function handleUpload(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!uploadFile || !uploadTargetPath.trim() || !selectedGenerationJobID) return;
+
+    setUploadLoading(true);
+    setUploadError(null);
+
+    try {
+      const created = await uploadAsset({
+        generation_job_id: selectedGenerationJobID,
+        target_path: uploadTargetPath.trim(),
+        file: uploadFile,
+      });
+
+      setUploadFile(null);
+      setUploadTargetPath("");
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+
+      updateQuery({
+        world_model_id: selectedWorldModelID,
+        generation_job_id: selectedGenerationJobID,
+        asset_id: created.id,
+      });
+    } catch (error) {
+      if (error instanceof APIClientError) {
+        if (error.code === "upload_conflict") {
+          setUploadError("A file already exists at that path. Uploads cannot overwrite existing files.");
+        } else if (error.code === "job_not_completed") {
+          setUploadError("Uploads are only allowed for completed generation jobs.");
+        } else if (error.code === "validation_error") {
+          setUploadError(`Validation error: ${error.message}`);
+        } else {
+          setUploadError(error.message || "Upload failed. Please try again.");
+        }
+      } else {
+        setUploadError("Upload failed. Please try again.");
+      }
+      setUploadLoading(false);
+    }
   }
 
   return (
@@ -143,6 +197,69 @@ export default function FileBrowserPage() {
           </label>
         </div>
       </Panel>
+      {canUpload && (
+        <Panel
+          title="Upload file"
+          subtitle={`Add a custom file to job ${selectedGenerationJobID}. Max 32 MB. Existing files cannot be overwritten.`}
+        >
+          <form className="stack stack--compact" onSubmit={handleUpload}>
+            <div className="form-grid">
+              <label className="toolbar-field form-grid__full">
+                File
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  required
+                  disabled={uploadLoading}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0] ?? null;
+                    setUploadFile(f);
+                    setUploadError(null);
+                    if (f && !uploadTargetPath.trim()) {
+                      setUploadTargetPath(f.name);
+                    }
+                  }}
+                />
+              </label>
+              <label className="toolbar-field form-grid__full">
+                Target path within job tree
+                <input
+                  type="text"
+                  placeholder="e.g. public/custom/report.pdf"
+                  value={uploadTargetPath}
+                  required
+                  disabled={uploadLoading}
+                  onChange={(e) => {
+                    setUploadTargetPath(e.target.value);
+                    setUploadError(null);
+                  }}
+                />
+                <span className="field-hint">
+                  Relative path inside the job — e.g. <code>public/notes.txt</code> or <code>shared/data.csv</code>
+                </span>
+              </label>
+            </div>
+            {uploadError && <ErrorAlert message={uploadError} />}
+            <div className="button-row">
+              <button
+                type="submit"
+                className="button button--primary"
+                disabled={uploadLoading || !uploadFile || !uploadTargetPath.trim()}
+              >
+                {uploadLoading ? "Uploading…" : "Upload file"}
+              </button>
+            </div>
+          </form>
+        </Panel>
+      )}
+      {selectedGenerationJobID && !canUpload && selectedJob && (
+        <Panel title="Upload file" subtitle="Upload a custom file into the selected job">
+          <EmptyState
+            title="Job not completed"
+            message={`Uploads are only available for completed generation jobs. The selected job status is "${selectedJob.status}".`}
+          />
+        </Panel>
+      )}
       <div className="split-layout">
         <Panel title="Asset tree" subtitle="Live tree from /api/assets/tree">
           {tree.length === 0 ? (

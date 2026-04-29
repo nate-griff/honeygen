@@ -1,3 +1,25 @@
+export interface IPWhois {
+  organization?: string;
+  network?: string;
+  country?: string;
+  raw?: string;
+}
+
+export interface IPGeo {
+  country?: string;
+  region?: string;
+  city?: string;
+  timezone?: string;
+  latitude?: number;
+  longitude?: number;
+}
+
+export interface IPIntelligence {
+  source: string;
+  whois?: IPWhois;
+  geo?: IPGeo;
+}
+
 export interface EventRecord {
   id: string;
   asset_id?: string;
@@ -15,4 +37,13 @@ export interface EventRecord {
   level: string;
   metadata?: Record<string, unknown>;
   created_at: string;
+}
+
+export function getIPIntelligence(metadata?: Record<string, unknown>): IPIntelligence | null {
+  if (!metadata) return null;
+  const raw = metadata.ip_intelligence;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const intel = raw as Record<string, unknown>;
+  if (typeof intel.source !== "string") return null;
+  return intel as unknown as IPIntelligence;
 }

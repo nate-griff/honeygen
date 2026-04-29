@@ -1,4 +1,5 @@
 import { formatDateTime } from "../../app/format";
+import { getIPIntelligence } from "../../types/events";
 import { EmptyState } from "../layout/EmptyState";
 import { StatusBadge } from "../layout/StatusBadge";
 import type { EventRecord } from "../../types/events";
@@ -42,6 +43,13 @@ export function EventList({ events, selectedEventID, onSelect }: EventListProps)
               <dd>{event.source_ip || "—"}</dd>
             </div>
           </dl>
+          {(() => {
+            const intel = getIPIntelligence(event.metadata);
+            const org = intel?.whois?.organization;
+            const country = intel?.geo?.country ?? intel?.whois?.country;
+            const hint = [org, country].filter(Boolean).join(" · ");
+            return hint ? <span className="list-card__meta">{hint}</span> : null;
+          })()}
           <span className="list-card__timestamp">{formatDateTime(event.timestamp)}</span>
         </button>
       ))}

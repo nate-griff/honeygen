@@ -16,6 +16,7 @@ import (
 	"github.com/natet/honeygen/backend/internal/deployments"
 	"github.com/natet/honeygen/backend/internal/events"
 	"github.com/natet/honeygen/backend/internal/generation"
+	"github.com/natet/honeygen/backend/internal/ipintel"
 	"github.com/natet/honeygen/backend/internal/models"
 	"github.com/natet/honeygen/backend/internal/provider"
 	"github.com/natet/honeygen/backend/internal/rendering"
@@ -44,6 +45,8 @@ type APIApp struct {
 	ProviderConfigCodec *providerConfigCodec
 	DeploymentRepo      *deployments.Repository
 	DeploymentManager   *deployments.Manager
+	IPIntelService      *ipintel.Service
+	MMDBUpdater         *ipintel.Updater
 }
 
 func NewAPIApp(ctx context.Context, cfg config.Config, logger *slog.Logger) (*APIApp, error) {
@@ -139,6 +142,32 @@ func NewAPIApp(ctx context.Context, cfg config.Config, logger *slog.Logger) (*AP
 		DeploymentRepo:      deploymentRepo,
 		DeploymentManager:   deploymentManager,
 	}
+
+	// Wire up IP intelligence enrichment (best-effort; failures do not block startup).
+	ipIntelCache := ipintel.NewCache(database)
+	mmdbUpdater := ipintel.NewUpdater(
+		cfg.MaxMind.AccountID,
+		cfg.MaxMind.LicenseKey,
+		cfg.MaxMind.DBPath,
+		logger,
+	)
+	result.MMDBUpdater = mmdbUpdater
+
+	var geoIPReader ipintel.GeoIPLookup
+	if err := mmdbUpdater.EnsureFresh(ctx); err != nil {
+		logger.Info("GeoIP MMDB not available; GeoIP enrichment disabled", "reason", err.Error())
+	} else {
+		if r, err := ipintel.OpenGeoIP2Reader(cfg.MaxMind.DBPath); err != nil {
+			logger.Warn("failed to open GeoIP2 MMDB; GeoIP enrichment disabled", "error", err)
+		} else {
+			geoIPReader = r
+		}
+	}
+
+	rdapClient := ipintel.NewRDAPClient(nil)
+	ipIntelService := ipintel.NewService(ipIntelCache, geoIPReader, rdapClient)
+	result.IPIntelService = ipIntelService
+	result.EventService.SetIPEnricher(ipIntelService)
 	result.Generation = generation.NewService(generation.ServiceConfig{
 		WorldModels: worldmodels.NewRepository(database),
 		Planner:     result.Planner,

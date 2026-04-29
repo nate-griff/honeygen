@@ -91,6 +91,15 @@ CREATE TABLE IF NOT EXISTS deployments (
 	FOREIGN KEY (generation_job_id) REFERENCES generation_jobs(id),
 	FOREIGN KEY (world_model_id) REFERENCES world_models(id)
 );
+
+CREATE TABLE IF NOT EXISTS ip_intel_cache (
+	ip TEXT PRIMARY KEY,
+	status TEXT NOT NULL DEFAULT 'pending',
+	payload_json TEXT NOT NULL DEFAULT '{}',
+	enriched_at TEXT,
+	created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+	updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+);
 `
 
 var schemaUpgrades = []struct {

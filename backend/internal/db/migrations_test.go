@@ -347,6 +347,36 @@ CREATE TABLE events (
 	}
 }
 
+func TestMigrateCreatesIPIntelCacheTable(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	defer db.Close()
+
+	if err := Migrate(context.Background(), db); err != nil {
+		t.Fatalf("Migrate() error = %v", err)
+	}
+
+	var name string
+	if err := db.QueryRowContext(
+		context.Background(),
+		`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'ip_intel_cache'`,
+	).Scan(&name); err != nil {
+		t.Fatalf("expected ip_intel_cache table to exist, error = %v", err)
+	}
+	if name != "ip_intel_cache" {
+		t.Fatalf("table name = %q, want %q", name, "ip_intel_cache")
+	}
+
+	assertColumnExists(t, db, "ip_intel_cache", "ip")
+	assertColumnExists(t, db, "ip_intel_cache", "status")
+	assertColumnExists(t, db, "ip_intel_cache", "payload_json")
+	assertColumnExists(t, db, "ip_intel_cache", "enriched_at")
+	assertColumnExists(t, db, "ip_intel_cache", "created_at")
+	assertColumnExists(t, db, "ip_intel_cache", "updated_at")
+}
+
 func assertIndexExists(t *testing.T, db *sql.DB, index string) {
 	t.Helper()
 

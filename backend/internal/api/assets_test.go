@@ -1,10 +1,12 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -13,6 +15,7 @@ import (
 	"github.com/natet/honeygen/backend/internal/app"
 	"github.com/natet/honeygen/backend/internal/assets"
 	"github.com/natet/honeygen/backend/internal/config"
+	"github.com/natet/honeygen/backend/internal/models"
 )
 
 func TestAssetContentEndpointDoesNotInlineDOCXPreviewEvenIfMarkedPreviewable(t *testing.T) {
@@ -114,4 +117,289 @@ func seedAssetPreviewGenerationJob(t *testing.T, application *app.APIApp, worldM
 	`, jobID, worldModelID); err != nil {
 		t.Fatalf("seed generation job error = %v", err)
 	}
+}
+
+// ─── Upload endpoint tests ────────────────────────────────────────────────────
+
+func TestAssetUploadEndpointRequiresAuth(t *testing.T) {
+	application := newTestAPIApp(t)
+	router := NewRouter(application)
+
+	req, _ := buildUploadMultipartRequest(t, "northbridge-financial-job", "public/file.txt", "file.txt", []byte("hello"))
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	assertAPIErrorResponse(t, rec, http.StatusUnauthorized, "", models.APIErrorResponse{
+		Error: models.APIError{Code: "unauthorized", Message: "authentication required"},
+	})
+}
+
+func TestAssetUploadEndpointCreatesAssetInCompletedJob(t *testing.T) {
+	application := newTestAPIApp(t)
+	router := NewRouter(application)
+	seedCompletedGenerationJob(t, application, "northbridge-financial", "upload-job-1")
+
+	req, contentType := buildUploadMultipartRequest(t, "upload-job-1", "public/hello.txt", "hello.txt", []byte("hello world"))
+	req.Header.Set("Content-Type", contentType)
+	authReq := authenticatedRequest(t, router, http.MethodPost, "/api/assets/upload", req.Body)
+	authReq.Header.Set("Content-Type", contentType)
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, authReq)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status code = %d, want %d, body=%s", rec.Code, http.StatusCreated, rec.Body.String())
+	}
+
+	var created assets.Asset
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v, body=%s", err, rec.Body.String())
+	}
+	if created.ID == "" {
+		t.Fatalf("created.ID is empty")
+	}
+	if created.GenerationJobID != "upload-job-1" {
+		t.Fatalf("GenerationJobID = %q, want %q", created.GenerationJobID, "upload-job-1")
+	}
+	if created.WorldModelID != "northbridge-financial" {
+		t.Fatalf("WorldModelID = %q, want %q", created.WorldModelID, "northbridge-financial")
+	}
+	if created.SourceType != "upload" {
+		t.Fatalf("SourceType = %q, want %q", created.SourceType, "upload")
+	}
+	if created.SizeBytes != int64(len("hello world")) {
+		t.Fatalf("SizeBytes = %d, want %d", created.SizeBytes, len("hello world"))
+	}
+	if created.Path == "" {
+		t.Fatalf("Path is empty")
+	}
+}
+
+func TestAssetUploadEndpointRejectsNonCompletedJob(t *testing.T) {
+	statuses := []string{"pending", "running", "failed", "canceled"}
+	for _, status := range statuses {
+		t.Run(status, func(t *testing.T) {
+			application := newTestAPIApp(t)
+			router := NewRouter(application)
+			seedJobWithStatus(t, application, "northbridge-financial", "upload-job-status", status)
+
+			req, contentType := buildUploadMultipartRequest(t, "upload-job-status", "public/file.txt", "file.txt", []byte("data"))
+			authReq := authenticatedRequest(t, router, http.MethodPost, "/api/assets/upload", req.Body)
+			authReq.Header.Set("Content-Type", contentType)
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, authReq)
+
+			assertAPIErrorResponse(t, rec, http.StatusConflict, "", models.APIErrorResponse{
+				Error: models.APIError{Code: "job_not_completed", Message: "uploads are only allowed for completed generation jobs"},
+			})
+		})
+	}
+}
+
+func TestAssetUploadEndpointRejectsNonExistentJob(t *testing.T) {
+	application := newTestAPIApp(t)
+	router := NewRouter(application)
+
+	req, contentType := buildUploadMultipartRequest(t, "job_nonexistent", "public/file.txt", "file.txt", []byte("data"))
+	authReq := authenticatedRequest(t, router, http.MethodPost, "/api/assets/upload", req.Body)
+	authReq.Header.Set("Content-Type", contentType)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, authReq)
+
+	assertAPIErrorResponse(t, rec, http.StatusNotFound, "", models.APIErrorResponse{
+		Error: models.APIError{Code: "not_found", Message: "generation job not found"},
+	})
+}
+
+func TestAssetUploadEndpointRejectsPathConflict(t *testing.T) {
+	application := newTestAPIApp(t)
+	router := NewRouter(application)
+	seedCompletedGenerationJob(t, application, "northbridge-financial", "upload-job-conflict")
+
+	// Seed an existing asset at the target path
+	existingPath := "generated/northbridge-financial/upload-job-conflict/public/conflict.txt"
+	if _, err := application.AssetRepo.Create(context.Background(), assets.Asset{
+		ID:              "existing-asset-conflict",
+		GenerationJobID: "upload-job-conflict",
+		WorldModelID:    "northbridge-financial",
+		SourceType:      "generated",
+		RenderedType:    "text",
+		Path:            existingPath,
+		MIMEType:        "text/plain",
+		SizeBytes:       5,
+		Checksum:        "abc123",
+	}); err != nil {
+		t.Fatalf("AssetRepo.Create() error = %v", err)
+	}
+
+	req, contentType := buildUploadMultipartRequest(t, "upload-job-conflict", "public/conflict.txt", "conflict.txt", []byte("new content"))
+	authReq := authenticatedRequest(t, router, http.MethodPost, "/api/assets/upload", req.Body)
+	authReq.Header.Set("Content-Type", contentType)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, authReq)
+
+	assertAPIErrorResponse(t, rec, http.StatusConflict, "", models.APIErrorResponse{
+		Error: models.APIError{Code: "path_conflict", Message: "an asset already exists at the target path"},
+	})
+}
+
+func TestAssetUploadEndpointEnforcesMaxUploadSize(t *testing.T) {
+	cfg := baseTestConfig(t)
+	cfg.MaxUploadSizeBytes = 100 // 100 bytes — very small for testing
+	application := newTestAPIAppWithConfig(t, cfg)
+	router := NewRouter(application)
+	seedCompletedGenerationJob(t, application, "northbridge-financial", "upload-job-size")
+
+	oversizedContent := bytes.Repeat([]byte("x"), 200)
+	req, contentType := buildUploadMultipartRequest(t, "upload-job-size", "public/big.txt", "big.txt", oversizedContent)
+	authReq := authenticatedRequest(t, router, http.MethodPost, "/api/assets/upload", req.Body)
+	authReq.Header.Set("Content-Type", contentType)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, authReq)
+
+	assertAPIErrorResponse(t, rec, http.StatusRequestEntityTooLarge, "", models.APIErrorResponse{
+		Error: models.APIError{Code: "upload_too_large", Message: "file exceeds the maximum upload size"},
+	})
+}
+
+func TestAssetUploadEndpointRequiresGenerationJobID(t *testing.T) {
+	application := newTestAPIApp(t)
+	router := NewRouter(application)
+
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	_ = mw.WriteField("target_path", "public/file.txt")
+	fw, _ := mw.CreateFormFile("file", "file.txt")
+	_, _ = fw.Write([]byte("content"))
+	mw.Close()
+
+	authReq := authenticatedRequest(t, router, http.MethodPost, "/api/assets/upload", &buf)
+	authReq.Header.Set("Content-Type", mw.FormDataContentType())
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, authReq)
+
+	assertAPIErrorResponse(t, rec, http.StatusBadRequest, "", models.APIErrorResponse{
+		Error: models.APIError{Code: "validation_error", Message: "generation_job_id is required"},
+	})
+}
+
+func TestAssetUploadEndpointRequiresTargetPath(t *testing.T) {
+	application := newTestAPIApp(t)
+	router := NewRouter(application)
+
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	_ = mw.WriteField("generation_job_id", "some-job")
+	fw, _ := mw.CreateFormFile("file", "file.txt")
+	_, _ = fw.Write([]byte("content"))
+	mw.Close()
+
+	authReq := authenticatedRequest(t, router, http.MethodPost, "/api/assets/upload", &buf)
+	authReq.Header.Set("Content-Type", mw.FormDataContentType())
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, authReq)
+
+	assertAPIErrorResponse(t, rec, http.StatusBadRequest, "", models.APIErrorResponse{
+		Error: models.APIError{Code: "validation_error", Message: "target_path is required"},
+	})
+}
+
+func TestAssetUploadEndpointRequiresFile(t *testing.T) {
+	application := newTestAPIApp(t)
+	router := NewRouter(application)
+
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	_ = mw.WriteField("generation_job_id", "some-job")
+	_ = mw.WriteField("target_path", "public/file.txt")
+	mw.Close()
+
+	authReq := authenticatedRequest(t, router, http.MethodPost, "/api/assets/upload", &buf)
+	authReq.Header.Set("Content-Type", mw.FormDataContentType())
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, authReq)
+
+	assertAPIErrorResponse(t, rec, http.StatusBadRequest, "", models.APIErrorResponse{
+		Error: models.APIError{Code: "validation_error", Message: "file is required"},
+	})
+}
+
+func TestAssetUploadEndpointRejectsWrongMethod(t *testing.T) {
+	application := newTestAPIApp(t)
+	router := NewRouter(application)
+
+	authReq := authenticatedRequest(t, router, http.MethodGet, "/api/assets/upload", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, authReq)
+
+	assertAPIErrorResponse(t, rec, http.StatusMethodNotAllowed, http.MethodPost, models.APIErrorResponse{
+		Error: models.APIError{Code: "method_not_allowed", Message: "method not allowed"},
+	})
+}
+
+// ─── Upload test helpers ──────────────────────────────────────────────────────
+
+func buildUploadMultipartRequest(t *testing.T, jobID, targetPath, filename string, content []byte) (*http.Request, string) {
+	t.Helper()
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	if jobID != "" {
+		_ = mw.WriteField("generation_job_id", jobID)
+	}
+	if targetPath != "" {
+		_ = mw.WriteField("target_path", targetPath)
+	}
+	fw, err := mw.CreateFormFile("file", filename)
+	if err != nil {
+		t.Fatalf("CreateFormFile() error = %v", err)
+	}
+	if _, err := fw.Write(content); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+	mw.Close()
+	req := httptest.NewRequest(http.MethodPost, "/api/assets/upload", &buf)
+	return req, mw.FormDataContentType()
+}
+
+func seedCompletedGenerationJob(t *testing.T, application *app.APIApp, worldModelID, jobID string) {
+	t.Helper()
+	if _, err := application.DB.ExecContext(context.Background(), `
+		INSERT OR IGNORE INTO generation_jobs (id, world_model_id, status, summary_json, error_message, created_at, updated_at, completed_at)
+		VALUES (?, ?, 'completed', '{}', '', strftime('%Y-%m-%dT%H:%M:%SZ', 'now'), strftime('%Y-%m-%dT%H:%M:%SZ', 'now'), strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+	`, jobID, worldModelID); err != nil {
+		t.Fatalf("seed completed generation job error = %v", err)
+	}
+}
+
+func seedJobWithStatus(t *testing.T, application *app.APIApp, worldModelID, jobID, status string) {
+	t.Helper()
+	if _, err := application.DB.ExecContext(context.Background(), `
+		INSERT OR IGNORE INTO generation_jobs (id, world_model_id, status, summary_json, error_message, created_at, updated_at)
+		VALUES (?, ?, ?, '{}', '', strftime('%Y-%m-%dT%H:%M:%SZ', 'now'), strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+	`, jobID, worldModelID, status); err != nil {
+		t.Fatalf("seed generation job with status %q error = %v", status, err)
+	}
+}
+
+func baseTestConfig(t *testing.T) config.Config {
+	t.Helper()
+	return config.Config{
+		ServiceName:                 "honeygen-api",
+		ServiceVersion:              "test",
+		AppEnv:                      "test",
+		HTTPAddr:                    ":0",
+		AdminPassword:               "test-admin-password",
+		InternalEventIngestToken:    "test-internal-event-token",
+		ProviderConfigEncryptionKey: "test-provider-config-encryption-key",
+		SQLitePath:                  filepath.Join(t.TempDir(), "api.db"),
+		GeneratedAssetsDir:          filepath.Join(t.TempDir(), "generated"),
+		StorageRoot:                 filepath.Join(t.TempDir(), "storage"),
+	}
+}
+
+func newUploadTestAPIApp(t *testing.T) (*app.APIApp, http.Handler) {
+	t.Helper()
+	application := newTestAPIApp(t)
+	return application, NewRouter(application)
 }

@@ -129,6 +129,7 @@ var schemaIndexes = []string{
 	`CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_events_created_at ON events(created_at DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_deployments_status ON deployments(status)`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS idx_deployments_port_unique ON deployments(port)`,
 }
 
 func Migrate(ctx context.Context, database *sql.DB) error {

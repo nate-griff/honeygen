@@ -34,7 +34,7 @@ func settingsProviderHandler(application *app.APIApp) http.HandlerFunc {
 }
 
 func handleGetProviderSettings(application *app.APIApp, w http.ResponseWriter, _ *http.Request) {
-	cfg := application.Config.Provider
+	cfg := application.ProviderConfig()
 	writeJSON(w, http.StatusOK, providerSettingsResponse{
 		BaseURL: cfg.BaseURL,
 		APIKey:  maskAPIKey(cfg.APIKey),
@@ -65,8 +65,7 @@ func handlePutProviderSettings(application *app.APIApp, w http.ResponseWriter, r
 	request.APIKey = strings.TrimSpace(request.APIKey)
 	request.Model = strings.TrimSpace(request.Model)
 
-	// If the masked key is sent back unchanged, keep the current key
-	current := application.Config.Provider
+	current := application.ProviderConfig()
 	if request.APIKey == maskAPIKey(current.APIKey) || request.APIKey == "" {
 		request.APIKey = current.APIKey
 	}
@@ -77,11 +76,25 @@ func handlePutProviderSettings(application *app.APIApp, w http.ResponseWriter, r
 		Model:   request.Model,
 	}
 
-	// Persist to settings table
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
-	valueJSON, err := json.Marshal(newCfg)
+	encryptedAPIKey, err := application.ProviderConfigCodec.EncryptString(newCfg.APIKey)
+	if err != nil {
+		application.Logger.Error("encrypt provider settings", "error", err)
+		writeError(w, http.StatusInternalServerError, "settings_error", "unable to save provider settings")
+		return
+	}
+
+	valueJSON, err := json.Marshal(struct {
+		BaseURL         string `json:"base_url"`
+		EncryptedAPIKey string `json:"encrypted_api_key,omitempty"`
+		Model           string `json:"model"`
+	}{
+		BaseURL:         newCfg.BaseURL,
+		EncryptedAPIKey: encryptedAPIKey,
+		Model:           newCfg.Model,
+	})
 	if err != nil {
 		application.Logger.Error("encode provider settings", "error", err)
 		writeError(w, http.StatusInternalServerError, "settings_error", "unable to save provider settings")
@@ -93,7 +106,6 @@ func handlePutProviderSettings(application *app.APIApp, w http.ResponseWriter, r
 		return
 	}
 
-	// Apply in memory
 	application.UpdateProvider(newCfg)
 
 	application.Logger.Info("provider settings updated", "ready", newCfg.Ready(), "mode", newCfg.Mode(), "base_url", newCfg.BaseURL, "model", newCfg.Model)

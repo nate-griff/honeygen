@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/natet/honeygen/backend/internal/assets"
@@ -23,27 +24,39 @@ import (
 )
 
 type APIApp struct {
-	Config        config.Config
-	Logger        *slog.Logger
-	DB            *sql.DB
-	StatusQueries appdb.StatusSummaryReader
-	Settings      *appdb.SettingsStore
-	WorldModels   *worldmodels.Service
-	Provider      provider.Provider
-	AssetRepo     *assets.Repository
-	EventRepo     *events.Repository
-	EventService  *events.Service
-	JobStore      *generation.JobStore
-	Planner       *generation.Planner
-	Storage       *storage.Filesystem
-	Renderers     rendering.Registry
-	DeploymentRepo    *deployments.Repository
-	DeploymentManager *deployments.Manager
+	providerMu          sync.RWMutex
+	Config              config.Config
+	Logger              *slog.Logger
+	DB                  *sql.DB
+	StatusQueries       appdb.StatusSummaryReader
+	Settings            *appdb.SettingsStore
+	WorldModels         *worldmodels.Service
+	Provider            provider.Provider
+	Generation          *generation.Service
+	AssetRepo           *assets.Repository
+	EventRepo           *events.Repository
+	EventService        *events.Service
+	JobStore            *generation.JobStore
+	Planner             *generation.Planner
+	Storage             *storage.Filesystem
+	Renderers           rendering.Registry
+	AdminSessions       *AdminSessionManager
+	ProviderConfigCodec *providerConfigCodec
+	DeploymentRepo      *deployments.Repository
+	DeploymentManager   *deployments.Manager
 }
 
 func NewAPIApp(ctx context.Context, cfg config.Config, logger *slog.Logger) (*APIApp, error) {
 	if logger == nil {
 		logger = slog.Default()
+	}
+	if cfg.AdminPassword == "" {
+		return nil, fmt.Errorf("admin password must be set")
+	}
+
+	providerConfigCodec, err := newProviderConfigCodec(cfg.ProviderConfigEncryptionKey)
+	if err != nil {
+		return nil, err
 	}
 
 	if cfg.StorageRoot != "" {
@@ -80,7 +93,6 @@ func NewAPIApp(ctx context.Context, cfg config.Config, logger *slog.Logger) (*AP
 	filesystem := storage.NewFilesystem(cfg.StorageRoot)
 	deploymentRepo := deployments.NewRepository(database)
 
-	// Derive the API base URL for deployment event forwarding
 	apiBaseURL := fmt.Sprintf("http://localhost%s", cfg.HTTPAddr)
 	deploymentManager := deployments.NewManager(
 		deploymentRepo,
@@ -92,8 +104,7 @@ func NewAPIApp(ctx context.Context, cfg config.Config, logger *slog.Logger) (*AP
 		cfg.FTPPassivePorts,
 	)
 
-	// Load saved provider settings (overlay on top of env/config file values)
-	savedProvider, err := loadSavedProviderConfig(ctx, settingsStore)
+	savedProvider, err := loadSavedProviderConfig(ctx, settingsStore, providerConfigCodec)
 	if err != nil {
 		logger.Warn("load saved provider settings", "error", err)
 	} else if savedProvider != nil {
@@ -109,23 +120,39 @@ func NewAPIApp(ctx context.Context, cfg config.Config, logger *slog.Logger) (*AP
 	}
 
 	result := &APIApp{
-		Config:        cfg,
-		Logger:        logger,
-		DB:            database,
-		StatusQueries: appdb.NewStatusQueries(database),
-		Settings:      settingsStore,
-		WorldModels:   worldModelService,
-		Provider:      provider.NewOpenAI(cfg.Provider, nil),
-		AssetRepo:     assetRepo,
-		EventRepo:     eventRepo,
-		EventService:  events.NewService(eventRepo, assetRepo),
-		JobStore:      jobStore,
-		Planner:       generation.NewPlanner(),
-		Storage:       filesystem,
-		Renderers:     rendering.NewRegistry(rendering.RegistryConfig{}),
-		DeploymentRepo:    deploymentRepo,
-		DeploymentManager: deploymentManager,
+		Config:              cfg,
+		Logger:              logger,
+		DB:                  database,
+		StatusQueries:       appdb.NewStatusQueries(database),
+		Settings:            settingsStore,
+		WorldModels:         worldModelService,
+		Provider:            provider.NewOpenAI(cfg.Provider, nil),
+		AssetRepo:           assetRepo,
+		EventRepo:           eventRepo,
+		EventService:        events.NewService(eventRepo, assetRepo),
+		JobStore:            jobStore,
+		Planner:             generation.NewPlanner(),
+		Storage:             filesystem,
+		Renderers:           rendering.NewRegistry(rendering.RegistryConfig{}),
+		AdminSessions:       NewAdminSessionManager(),
+		ProviderConfigCodec: providerConfigCodec,
+		DeploymentRepo:      deploymentRepo,
+		DeploymentManager:   deploymentManager,
 	}
+	result.Generation = generation.NewService(generation.ServiceConfig{
+		WorldModels: worldmodels.NewRepository(database),
+		Planner:     result.Planner,
+		ProviderProvider: func() provider.Provider {
+			return result.CurrentProvider()
+		},
+		RenderersProvider: func() rendering.Registry {
+			return result.Renderers
+		},
+		Jobs:             result.JobStore,
+		Assets:           result.AssetRepo,
+		Storage:          result.Storage,
+		LifecycleContext: ctx,
+	})
 
 	deploymentManager.RestoreRunning(ctx)
 
@@ -133,20 +160,35 @@ func NewAPIApp(ctx context.Context, cfg config.Config, logger *slog.Logger) (*AP
 }
 
 func (a *APIApp) UpdateProvider(cfg config.ProviderConfig) {
+	a.providerMu.Lock()
+	defer a.providerMu.Unlock()
 	a.Config.Provider = cfg
 	a.Provider = provider.NewOpenAI(cfg, nil)
 }
 
+func (a *APIApp) ProviderState() (config.ProviderConfig, provider.Provider) {
+	if a == nil {
+		return config.ProviderConfig{}, nil
+	}
+
+	a.providerMu.RLock()
+	defer a.providerMu.RUnlock()
+
+	return a.Config.Provider, a.Provider
+}
+
+func (a *APIApp) ProviderConfig() config.ProviderConfig {
+	cfg, _ := a.ProviderState()
+	return cfg
+}
+
+func (a *APIApp) CurrentProvider() provider.Provider {
+	_, currentProvider := a.ProviderState()
+	return currentProvider
+}
+
 func (a *APIApp) GenerationService() *generation.Service {
-	return generation.NewService(generation.ServiceConfig{
-		WorldModels: worldmodels.NewRepository(a.DB),
-		Planner:     a.Planner,
-		Provider:    a.Provider,
-		Jobs:        a.JobStore,
-		Assets:      a.AssetRepo,
-		Storage:     a.Storage,
-		Renderers:   a.Renderers,
-	})
+	return a.Generation
 }
 
 func (a *APIApp) Close() error {
@@ -155,6 +197,11 @@ func (a *APIApp) Close() error {
 	}
 	if a.DeploymentManager != nil {
 		a.DeploymentManager.StopAll(context.Background())
+	}
+	if a.Generation != nil {
+		if err := a.Generation.Close(); err != nil {
+			return err
+		}
 	}
 	if a.DB == nil {
 		return nil
@@ -173,6 +220,7 @@ func (a *APIApp) Health(ctx context.Context) models.HealthResponse {
 }
 
 func (a *APIApp) Status(ctx context.Context) (models.StatusResponse, error) {
+	providerConfig := a.ProviderConfig()
 	response := models.StatusResponse{
 		Service: models.ServiceStatus{
 			Name:    a.Config.ServiceName,
@@ -180,17 +228,11 @@ func (a *APIApp) Status(ctx context.Context) (models.StatusResponse, error) {
 		},
 		Database: models.DatabaseStatus{
 			Ready: a.databaseReady(ctx),
-			Path:  a.Config.SQLitePath,
-		},
-		Storage: models.StorageStatus{
-			Root:               a.Config.StorageRoot,
-			GeneratedAssetsDir: a.Config.GeneratedAssetsDir,
 		},
 		Provider: models.ProviderStatus{
-			Mode:    a.Config.Provider.Mode(),
-			Ready:   a.Config.Provider.Ready(),
-			BaseURL: a.Config.Provider.BaseURL,
-			Model:   a.Config.Provider.Model,
+			Mode:  providerConfig.Mode(),
+			Ready: providerConfig.Ready(),
+			Model: providerConfig.Model,
 		},
 		RecentEvents: []models.RecentEventSummary{},
 	}
@@ -214,7 +256,7 @@ func (a *APIApp) databaseReady(ctx context.Context) bool {
 	return a != nil && a.DB != nil && a.DB.PingContext(ctx) == nil
 }
 
-func loadSavedProviderConfig(ctx context.Context, store *appdb.SettingsStore) (*config.ProviderConfig, error) {
+func loadSavedProviderConfig(ctx context.Context, store *appdb.SettingsStore, codec *providerConfigCodec) (*config.ProviderConfig, error) {
 	raw, err := store.Get(ctx, "provider")
 	if err != nil {
 		return nil, err
@@ -222,9 +264,28 @@ func loadSavedProviderConfig(ctx context.Context, store *appdb.SettingsStore) (*
 	if raw == nil {
 		return nil, nil
 	}
-	var cfg config.ProviderConfig
-	if err := json.Unmarshal(raw, &cfg); err != nil {
+
+	var stored struct {
+		BaseURL         string `json:"base_url"`
+		APIKey          string `json:"api_key,omitempty"`
+		EncryptedAPIKey string `json:"encrypted_api_key,omitempty"`
+		Model           string `json:"model"`
+	}
+	if err := json.Unmarshal(raw, &stored); err != nil {
 		return nil, fmt.Errorf("decode saved provider config: %w", err)
 	}
-	return &cfg, nil
+
+	apiKey := stored.APIKey
+	if stored.EncryptedAPIKey != "" {
+		apiKey, err = codec.DecryptString(stored.EncryptedAPIKey)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return &config.ProviderConfig{
+		BaseURL: stored.BaseURL,
+		APIKey:  apiKey,
+		Model:   stored.Model,
+	}, nil
 }

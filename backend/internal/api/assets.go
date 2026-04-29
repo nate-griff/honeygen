@@ -104,7 +104,7 @@ func handleAssetContent(application *app.APIApp, w http.ResponseWriter, r *http.
 		return
 	}
 
-	if !item.Previewable {
+	if !assetSupportsInlinePreview(item) {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"asset":       item,
 			"previewable": false,
@@ -125,6 +125,19 @@ func handleAssetContent(application *app.APIApp, w http.ResponseWriter, r *http.
 		"previewable": true,
 		"content":     string(content),
 	})
+}
+
+func assetSupportsInlinePreview(item assets.Asset) bool {
+	if !item.Previewable {
+		return false
+	}
+
+	switch item.RenderedType {
+	case "html", "markdown", "text", "csv":
+		return true
+	}
+
+	return strings.HasPrefix(strings.ToLower(item.MIMEType), "text/")
 }
 
 func readAssetListOptions(r *http.Request) assets.ListOptions {

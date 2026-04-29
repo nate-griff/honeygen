@@ -3,11 +3,17 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/natet/honeygen/backend/internal/app"
 	"github.com/natet/honeygen/backend/internal/deployments"
+)
+
+const (
+	deploymentPortMin = 9000
+	deploymentPortMax = 9009
 )
 
 type createDeploymentRequest struct {
@@ -56,9 +62,15 @@ func deploymentsListHandler(application *app.APIApp) http.HandlerFunc {
 
 func deploymentsCreateHandler(application *app.APIApp) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		body, err := readJSONBody(w, r)
+		if err != nil {
+			writeValidationFailure(w, err)
+			return
+		}
+
 		var req createDeploymentRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid_body", "invalid JSON body")
+		if err := json.Unmarshal(body, &req); err != nil {
+			writeValidationFailure(w, requestValidationError{message: "request body must be a JSON object"})
 			return
 		}
 
@@ -70,8 +82,8 @@ func deploymentsCreateHandler(application *app.APIApp) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "validation_error", "world_model_id is required")
 			return
 		}
-		if req.Port <= 0 || req.Port >= 65536 {
-			writeError(w, http.StatusBadRequest, "validation_error", "port must be between 1 and 65535")
+		if err := validateDeploymentPort(req.Port); err != nil {
+			writeValidationFailure(w, err)
 			return
 		}
 		if req.Protocol == "" {
@@ -85,6 +97,15 @@ func deploymentsCreateHandler(application *app.APIApp) http.HandlerFunc {
 		if req.RootPath == "" {
 			req.RootPath = "/"
 		}
+		portInUse, err := application.DeploymentRepo.ExistsPort(r.Context(), req.Port)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal_error", "failed to validate deployment port availability")
+			return
+		}
+		if portInUse {
+			writeError(w, http.StatusConflict, "port_conflict", fmt.Sprintf("port %d is already assigned to another deployment", req.Port))
+			return
+		}
 
 		d := deployments.Deployment{
 			GenerationJobID: strings.TrimSpace(req.GenerationJobID),
@@ -96,12 +117,23 @@ func deploymentsCreateHandler(application *app.APIApp) http.HandlerFunc {
 
 		created, err := application.DeploymentRepo.Create(r.Context(), d)
 		if err != nil {
+			if errors.Is(err, deployments.ErrPortConflict) {
+				writeError(w, http.StatusConflict, "port_conflict", fmt.Sprintf("port %d is already assigned to another deployment", req.Port))
+				return
+			}
 			writeError(w, http.StatusInternalServerError, "internal_error", "failed to create deployment")
 			return
 		}
 
 		writeJSON(w, http.StatusCreated, created)
 	}
+}
+
+func validateDeploymentPort(port int) error {
+	if port < deploymentPortMin || port > deploymentPortMax {
+		return requestValidationError{message: fmt.Sprintf("port must be between %d and %d", deploymentPortMin, deploymentPortMax)}
+	}
+	return nil
 }
 
 func deploymentRoutingHandler(application *app.APIApp) http.HandlerFunc {

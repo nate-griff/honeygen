@@ -17,11 +17,12 @@ import (
 
 func TestWorldModelsListReturnsSeededSummary(t *testing.T) {
 	application := newTestAPIApp(t)
+	router := NewRouter(application)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/world-models", nil)
+	req := authenticatedRequest(t, router, http.MethodGet, "/api/world-models", nil)
 	rec := httptest.NewRecorder()
 
-	NewRouter(application).ServeHTTP(rec, req)
+	router.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status code = %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
@@ -55,8 +56,9 @@ func TestWorldModelsListReturnsSeededSummary(t *testing.T) {
 
 func TestWorldModelsCreateFetchAndUpdate(t *testing.T) {
 	application := newTestAPIApp(t)
+	router := NewRouter(application)
 
-	createReq := httptest.NewRequest(http.MethodPost, "/api/world-models", strings.NewReader(`{
+	createReq := authenticatedRequest(t, router, http.MethodPost, "/api/world-models", strings.NewReader(`{
 		"organization": {
 			"name": "Acme Advisory",
 			"industry": "Financial Services",
@@ -75,7 +77,7 @@ func TestWorldModelsCreateFetchAndUpdate(t *testing.T) {
 	createReq.Header.Set("Content-Type", "application/json")
 	createRec := httptest.NewRecorder()
 
-	NewRouter(application).ServeHTTP(createRec, createReq)
+	router.ServeHTTP(createRec, createReq)
 
 	if createRec.Code != http.StatusCreated {
 		t.Fatalf("create status code = %d, want %d, body=%s", createRec.Code, http.StatusCreated, createRec.Body.String())
@@ -116,17 +118,17 @@ func TestWorldModelsCreateFetchAndUpdate(t *testing.T) {
 	}
 	assertBrandingColorsEmptyArray(t, createRec.Body.Bytes())
 
-	getReq := httptest.NewRequest(http.MethodGet, "/api/world-models/"+created.ID, nil)
+	getReq := authenticatedRequest(t, router, http.MethodGet, "/api/world-models/"+created.ID, nil)
 	getRec := httptest.NewRecorder()
 
-	NewRouter(application).ServeHTTP(getRec, getReq)
+	router.ServeHTTP(getRec, getReq)
 
 	if getRec.Code != http.StatusOK {
 		t.Fatalf("get status code = %d, want %d, body=%s", getRec.Code, http.StatusOK, getRec.Body.String())
 	}
 	assertBrandingColorsEmptyArray(t, getRec.Body.Bytes())
 
-	updateReq := httptest.NewRequest(http.MethodPut, "/api/world-models/"+created.ID, strings.NewReader(`{
+	updateReq := authenticatedRequest(t, router, http.MethodPut, "/api/world-models/"+created.ID, strings.NewReader(`{
 		"organization": {
 			"name": "Acme Advisory Updated",
 			"industry": "Financial Services",
@@ -145,7 +147,7 @@ func TestWorldModelsCreateFetchAndUpdate(t *testing.T) {
 	updateReq.Header.Set("Content-Type", "application/json")
 	updateRec := httptest.NewRecorder()
 
-	NewRouter(application).ServeHTTP(updateRec, updateReq)
+	router.ServeHTTP(updateRec, updateReq)
 
 	if updateRec.Code != http.StatusOK {
 		t.Fatalf("update status code = %d, want %d, body=%s", updateRec.Code, http.StatusOK, updateRec.Body.String())
@@ -181,12 +183,13 @@ func TestWorldModelsCreateFetchAndUpdate(t *testing.T) {
 
 func TestWorldModelsValidationErrorsUseCanonicalShape(t *testing.T) {
 	application := newTestAPIApp(t)
+	router := NewRouter(application)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/world-models", strings.NewReader(`{"branding":{}}`))
+	req := authenticatedRequest(t, router, http.MethodPost, "/api/world-models", strings.NewReader(`{"branding":{}}`))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 
-	NewRouter(application).ServeHTTP(rec, req)
+	router.ServeHTTP(rec, req)
 
 	assertAPIErrorResponse(t, rec, http.StatusBadRequest, "", models.APIErrorResponse{
 		Error: models.APIError{
@@ -214,13 +217,14 @@ func TestWorldModelGenerateAllowsExtendedInferenceTimeout(t *testing.T) {
 	t.Parallel()
 
 	application := newTestAPIApp(t)
+	router := NewRouter(application)
 	application.Provider = minimumDeadlineProvider{minimumRemaining: 2 * time.Minute}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/world-models/generate", strings.NewReader(`{"description":"Generate a plausible financial-services organization."}`))
+	req := authenticatedRequest(t, router, http.MethodPost, "/api/world-models/generate", strings.NewReader(`{"description":"Generate a plausible financial-services organization."}`))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 
-	NewRouter(application).ServeHTTP(rec, req)
+	router.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status code = %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())

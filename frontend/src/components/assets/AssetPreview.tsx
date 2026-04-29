@@ -23,17 +23,17 @@ function isTextAsset(asset: Asset): boolean {
 }
 
 export function AssetPreview({ asset, content }: AssetPreviewProps) {
-  const sanitizedHTML = useMemo(() => {
+  const previewDocument = useMemo(() => {
     if (!asset || !content?.previewable || !content.content) {
       return "";
     }
 
     if (isMarkdownAsset(asset)) {
-      return DOMPurify.sanitize(marked.parse(content.content) as string);
+      return buildPreviewDocument(DOMPurify.sanitize(marked.parse(content.content) as string));
     }
 
     if (isHTMLAsset(asset)) {
-      return DOMPurify.sanitize(content.content);
+      return buildPreviewDocument(DOMPurify.sanitize(content.content));
     }
 
     return "";
@@ -59,8 +59,12 @@ export function AssetPreview({ asset, content }: AssetPreviewProps) {
     );
   }
 
-  if (sanitizedHTML) {
-    return <div className="preview-surface" dangerouslySetInnerHTML={{ __html: sanitizedHTML }} />;
+  if (previewDocument) {
+    return (
+      <div className="preview-surface preview-surface--frame">
+        <iframe className="preview-frame" sandbox="" srcDoc={previewDocument} title={`${asset.path} preview`} />
+      </div>
+    );
   }
 
   if (content.content && isTextAsset(asset)) {
@@ -73,4 +77,42 @@ export function AssetPreview({ asset, content }: AssetPreviewProps) {
       <p>This content type is not rendered inline.</p>
     </div>
   );
+}
+
+function buildPreviewDocument(body: string): string {
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      :root { color-scheme: light; }
+      body {
+        margin: 0;
+        padding: 1rem;
+        color: #0f172a;
+        background: #ffffff;
+        font: 14px/1.6 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      img, iframe, table { max-width: 100%; }
+      pre {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        background: #f8fafc;
+        border-radius: 0.75rem;
+        padding: 0.75rem;
+      }
+      table {
+        border-collapse: collapse;
+      }
+      th, td {
+        border: 1px solid #cbd5e1;
+        padding: 0.35rem 0.5rem;
+        text-align: left;
+      }
+      a { color: #2563eb; }
+    </style>
+  </head>
+  <body>${body}</body>
+</html>`;
 }

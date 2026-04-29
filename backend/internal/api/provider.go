@@ -28,7 +28,13 @@ func providerTestHandler(application *app.APIApp) http.HandlerFunc {
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
 
-		if err := application.Provider.Test(ctx); err != nil {
+		providerConfig, currentProvider := application.ProviderState()
+		if currentProvider == nil {
+			writeProviderError(application, w, &provider.Error{Kind: provider.KindConfig, Message: "provider is not configured"})
+			return
+		}
+
+		if err := currentProvider.Test(ctx); err != nil {
 			recordProviderFailure(application, request.GenerationJobID, err)
 			writeProviderError(application, w, err)
 			return
@@ -36,9 +42,9 @@ func providerTestHandler(application *app.APIApp) http.HandlerFunc {
 
 		writeJSON(w, http.StatusOK, map[string]any{
 			"ready":    true,
-			"mode":     application.Config.Provider.Mode(),
-			"base_url": application.Config.Provider.BaseURL,
-			"model":    application.Config.Provider.Model,
+			"mode":     providerConfig.Mode(),
+			"base_url": providerConfig.BaseURL,
+			"model":    providerConfig.Model,
 		})
 	}
 }

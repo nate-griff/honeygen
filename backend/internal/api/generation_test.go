@@ -17,16 +17,17 @@ import (
 
 func TestGenerationAndAssetsEndpointsRunBrowseAndPreview(t *testing.T) {
 	application := newTestAPIAppWithConfig(t, testProviderConfig(t, "https://provider.example/v1"))
+	router := NewRouter(application)
 	application.Provider = generationStubProvider{}
 	application.Renderers = rendering.NewRegistry(rendering.RegistryConfig{
 		PDF: rendering.StaticPDFRenderer([]byte("%PDF-1.4\n%stub\n")),
 	})
 
-	runReq := httptest.NewRequest(http.MethodPost, "/api/generation/run", strings.NewReader(`{"world_model_id":"northbridge-financial"}`))
+	runReq := authenticatedRequest(t, router, http.MethodPost, "/api/generation/run", strings.NewReader(`{"world_model_id":"northbridge-financial"}`))
 	runReq.Header.Set("Content-Type", "application/json")
 	runRec := httptest.NewRecorder()
 
-	NewRouter(application).ServeHTTP(runRec, runReq)
+	router.ServeHTTP(runRec, runReq)
 
 	if runRec.Code != http.StatusCreated {
 		t.Fatalf("run status code = %d, want %d, body=%s", runRec.Code, http.StatusCreated, runRec.Body.String())
@@ -52,9 +53,9 @@ func TestGenerationAndAssetsEndpointsRunBrowseAndPreview(t *testing.T) {
 		t.Fatalf("job summary = %+v, want planned manifest count", job.Summary)
 	}
 
-	jobsReq := httptest.NewRequest(http.MethodGet, "/api/generation/jobs?world_model_id=northbridge-financial&limit=5", nil)
+	jobsReq := authenticatedRequest(t, router, http.MethodGet, "/api/generation/jobs?world_model_id=northbridge-financial&limit=5", nil)
 	jobsRec := httptest.NewRecorder()
-	NewRouter(application).ServeHTTP(jobsRec, jobsReq)
+	router.ServeHTTP(jobsRec, jobsReq)
 
 	if jobsRec.Code != http.StatusOK {
 		t.Fatalf("jobs status code = %d, want %d, body=%s", jobsRec.Code, http.StatusOK, jobsRec.Body.String())
@@ -74,17 +75,17 @@ func TestGenerationAndAssetsEndpointsRunBrowseAndPreview(t *testing.T) {
 
 	waitForJobStatus(t, application.JobStore, job.ID, generation.StatusCompleted)
 
-	jobReq := httptest.NewRequest(http.MethodGet, "/api/generation/jobs/"+job.ID, nil)
+	jobReq := authenticatedRequest(t, router, http.MethodGet, "/api/generation/jobs/"+job.ID, nil)
 	jobRec := httptest.NewRecorder()
-	NewRouter(application).ServeHTTP(jobRec, jobReq)
+	router.ServeHTTP(jobRec, jobReq)
 	if jobRec.Code != http.StatusOK {
 		t.Fatalf("job detail status code = %d, want %d, body=%s", jobRec.Code, http.StatusOK, jobRec.Body.String())
 	}
 	assertJobLogsAppearOnlyInSummary(t, jobRec.Body.Bytes())
 
-	assetsReq := httptest.NewRequest(http.MethodGet, "/api/assets?generation_job_id="+job.ID+"&limit=200", nil)
+	assetsReq := authenticatedRequest(t, router, http.MethodGet, "/api/assets?generation_job_id="+job.ID+"&limit=200", nil)
 	assetsRec := httptest.NewRecorder()
-	NewRouter(application).ServeHTTP(assetsRec, assetsReq)
+	router.ServeHTTP(assetsRec, assetsReq)
 	if assetsRec.Code != http.StatusOK {
 		t.Fatalf("assets status code = %d, want %d, body=%s", assetsRec.Code, http.StatusOK, assetsRec.Body.String())
 	}
@@ -121,9 +122,9 @@ func TestGenerationAndAssetsEndpointsRunBrowseAndPreview(t *testing.T) {
 		t.Fatalf("asset coverage missing previewAssetID=%q pdfAssetID=%q", previewAssetID, pdfAssetID)
 	}
 
-	treeReq := httptest.NewRequest(http.MethodGet, "/api/assets/tree?generation_job_id="+job.ID, nil)
+	treeReq := authenticatedRequest(t, router, http.MethodGet, "/api/assets/tree?generation_job_id="+job.ID, nil)
 	treeRec := httptest.NewRecorder()
-	NewRouter(application).ServeHTTP(treeRec, treeReq)
+	router.ServeHTTP(treeRec, treeReq)
 	if treeRec.Code != http.StatusOK {
 		t.Fatalf("tree status code = %d, want %d, body=%s", treeRec.Code, http.StatusOK, treeRec.Body.String())
 	}
@@ -146,9 +147,9 @@ func TestGenerationAndAssetsEndpointsRunBrowseAndPreview(t *testing.T) {
 		}
 	}
 
-	previewReq := httptest.NewRequest(http.MethodGet, "/api/assets/"+previewAssetID+"/content", nil)
+	previewReq := authenticatedRequest(t, router, http.MethodGet, "/api/assets/"+previewAssetID+"/content", nil)
 	previewRec := httptest.NewRecorder()
-	NewRouter(application).ServeHTTP(previewRec, previewReq)
+	router.ServeHTTP(previewRec, previewReq)
 	if previewRec.Code != http.StatusOK {
 		t.Fatalf("preview status code = %d, want %d, body=%s", previewRec.Code, http.StatusOK, previewRec.Body.String())
 	}
@@ -164,9 +165,9 @@ func TestGenerationAndAssetsEndpointsRunBrowseAndPreview(t *testing.T) {
 		t.Fatalf("preview response = %+v, want inline content", previewResponse)
 	}
 
-	pdfReq := httptest.NewRequest(http.MethodGet, "/api/assets/"+pdfAssetID+"/content", nil)
+	pdfReq := authenticatedRequest(t, router, http.MethodGet, "/api/assets/"+pdfAssetID+"/content", nil)
 	pdfRec := httptest.NewRecorder()
-	NewRouter(application).ServeHTTP(pdfRec, pdfReq)
+	router.ServeHTTP(pdfRec, pdfReq)
 	if pdfRec.Code != http.StatusOK {
 		t.Fatalf("pdf content status code = %d, want %d, body=%s", pdfRec.Code, http.StatusOK, pdfRec.Body.String())
 	}
@@ -185,6 +186,7 @@ func TestGenerationAndAssetsEndpointsRunBrowseAndPreview(t *testing.T) {
 
 func TestGenerationRunReturnsImmediatelyWhileJobRunsInBackground(t *testing.T) {
 	application := newTestAPIAppWithConfig(t, testProviderConfig(t, "https://provider.example/v1"))
+	router := NewRouter(application)
 	provider := blockingGenerationProvider{
 		started: make(chan struct{}, 1),
 		release: make(chan struct{}),
@@ -194,11 +196,11 @@ func TestGenerationRunReturnsImmediatelyWhileJobRunsInBackground(t *testing.T) {
 		PDF: rendering.StaticPDFRenderer([]byte("%PDF-1.4\n%stub\n")),
 	})
 
-	runReq := httptest.NewRequest(http.MethodPost, "/api/generation/run", strings.NewReader(`{"world_model_id":"northbridge-financial"}`))
+	runReq := authenticatedRequest(t, router, http.MethodPost, "/api/generation/run", strings.NewReader(`{"world_model_id":"northbridge-financial"}`))
 	runReq.Header.Set("Content-Type", "application/json")
 	runRec := httptest.NewRecorder()
 
-	NewRouter(application).ServeHTTP(runRec, runReq)
+	router.ServeHTTP(runRec, runReq)
 
 	if runRec.Code != http.StatusCreated {
 		t.Fatalf("run status code = %d, want %d, body=%s", runRec.Code, http.StatusCreated, runRec.Body.String())
@@ -235,12 +237,13 @@ func TestGenerationRunReturnsImmediatelyWhileJobRunsInBackground(t *testing.T) {
 
 func TestGenerationRunReturnsValidationErrorWithoutWorldModelID(t *testing.T) {
 	application := newTestAPIAppWithConfig(t, testProviderConfig(t, "https://provider.example/v1"))
+	router := NewRouter(application)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/generation/run", strings.NewReader(`{}`))
+	req := authenticatedRequest(t, router, http.MethodPost, "/api/generation/run", strings.NewReader(`{}`))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 
-	NewRouter(application).ServeHTTP(rec, req)
+	router.ServeHTTP(rec, req)
 
 	assertAPIErrorResponse(t, rec, http.StatusBadRequest, "", models.APIErrorResponse{
 		Error: models.APIError{
@@ -248,6 +251,70 @@ func TestGenerationRunReturnsValidationErrorWithoutWorldModelID(t *testing.T) {
 			Message: "world_model_id is required",
 		},
 	})
+}
+
+func TestGenerationCancelEndpointCancelsRunningJob(t *testing.T) {
+	application := newTestAPIAppWithConfig(t, testProviderConfig(t, "https://provider.example/v1"))
+	router := NewRouter(application)
+	provider := cancelableBlockingGenerationProvider{
+		started:  make(chan struct{}, 1),
+		canceled: make(chan struct{}, 1),
+	}
+	application.Provider = provider
+	application.Renderers = rendering.NewRegistry(rendering.RegistryConfig{
+		PDF: rendering.StaticPDFRenderer([]byte("%PDF-1.4\n%stub\n")),
+	})
+
+	runReq := authenticatedRequest(t, router, http.MethodPost, "/api/generation/run", strings.NewReader(`{"world_model_id":"northbridge-financial"}`))
+	runReq.Header.Set("Content-Type", "application/json")
+	runRec := httptest.NewRecorder()
+	router.ServeHTTP(runRec, runReq)
+
+	if runRec.Code != http.StatusCreated {
+		t.Fatalf("run status code = %d, want %d, body=%s", runRec.Code, http.StatusCreated, runRec.Body.String())
+	}
+
+	var job struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(runRec.Body.Bytes(), &job); err != nil {
+		t.Fatalf("json.Unmarshal(run) error = %v", err)
+	}
+	if job.ID == "" {
+		t.Fatalf("job = %+v, want id", job)
+	}
+
+	waitForSignal(t, provider.started, "background generation did not start")
+
+	cancelReq := authenticatedRequest(t, router, http.MethodPost, "/api/generation/jobs/"+job.ID+"/cancel", nil)
+	cancelRec := httptest.NewRecorder()
+	router.ServeHTTP(cancelRec, cancelReq)
+
+	if cancelRec.Code != http.StatusOK {
+		t.Fatalf("cancel status code = %d, want %d, body=%s", cancelRec.Code, http.StatusOK, cancelRec.Body.String())
+	}
+
+	var canceledJob struct {
+		ID          string  `json:"id"`
+		Status      string  `json:"status"`
+		CompletedAt *string `json:"completed_at"`
+	}
+	if err := json.Unmarshal(cancelRec.Body.Bytes(), &canceledJob); err != nil {
+		t.Fatalf("json.Unmarshal(cancel) error = %v", err)
+	}
+	if canceledJob.ID != job.ID || canceledJob.Status != generation.StatusCanceled {
+		t.Fatalf("canceledJob = %+v, want canceled job %q", canceledJob, job.ID)
+	}
+	if canceledJob.CompletedAt == nil || *canceledJob.CompletedAt == "" {
+		t.Fatalf("canceledJob.CompletedAt = %v, want timestamp", canceledJob.CompletedAt)
+	}
+
+	waitForSignal(t, provider.canceled, "provider context was not canceled")
+
+	storedJob := waitForJobStatus(t, application.JobStore, job.ID, generation.StatusCanceled)
+	if storedJob.CompletedAt == nil {
+		t.Fatal("storedJob.CompletedAt is nil")
+	}
 }
 
 type generationStubProvider struct{}
@@ -289,6 +356,29 @@ func (p blockingGenerationProvider) Generate(_ context.Context, request provider
 
 func (blockingGenerationProvider) Test(context.Context) error { return nil }
 
+type cancelableBlockingGenerationProvider struct {
+	started  chan struct{}
+	canceled chan struct{}
+}
+
+func (p cancelableBlockingGenerationProvider) Generate(ctx context.Context, request provider.GenerateRequest) (provider.GenerateResponse, error) {
+	select {
+	case p.started <- struct{}{}:
+	default:
+	}
+
+	<-ctx.Done()
+
+	select {
+	case p.canceled <- struct{}{}:
+	default:
+	}
+
+	return provider.GenerateResponse{}, ctx.Err()
+}
+
+func (cancelableBlockingGenerationProvider) Test(context.Context) error { return nil }
+
 func containsString(items []string, want string) bool {
 	for _, item := range items {
 		if item == want {
@@ -316,6 +406,16 @@ func waitForJobStatus(t *testing.T, store *generation.JobStore, jobID, wantStatu
 	}
 	t.Fatalf("job.Status = %q, want %q", job.Status, wantStatus)
 	return generation.Job{}
+}
+
+func waitForSignal(t *testing.T, signal <-chan struct{}, message string) {
+	t.Helper()
+
+	select {
+	case <-signal:
+	case <-time.After(2 * time.Second):
+		t.Fatal(message)
+	}
 }
 
 func assertJobLogsAppearOnlyInSummary(t *testing.T, body []byte) {

@@ -59,7 +59,7 @@ export default function DashboardPage() {
           <div className="stat-card">
             <span>Database</span>
             <StatusBadge value={status.database.ready} />
-            <strong>{status.database.path}</strong>
+            <strong>{status.database.ready ? "Connected" : "Unavailable"}</strong>
           </div>
         </Panel>
         <Panel>

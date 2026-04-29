@@ -97,6 +97,60 @@ func generationJobsItemHandler(application *app.APIApp) http.HandlerFunc {
 	}
 }
 
+func generationJobCancelHandler(application *app.APIApp) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, err := generationJobCancelIDFromPath(r.URL.Path)
+		if err != nil {
+			writeError(w, http.StatusNotFound, "not_found", "resource not found")
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		defer cancel()
+
+		job, err := application.GenerationService().Cancel(ctx, id)
+		if errors.Is(err, generation.ErrJobNotFound) {
+			writeError(w, http.StatusNotFound, "not_found", "generation job not found")
+			return
+		}
+		if errors.Is(err, generation.ErrJobNotCancelable) {
+			writeError(w, http.StatusConflict, "generation_job_not_cancelable", "generation job is not running")
+			return
+		}
+		if err != nil {
+			application.Logger.Error("cancel generation job", "error", err, "id", id)
+			writeError(w, http.StatusInternalServerError, "generation_cancel_failed", "generation job could not be canceled")
+			return
+		}
+
+		writeJSON(w, http.StatusOK, job)
+	}
+}
+
+func generationJobsRoutingHandler(application *app.APIApp) http.HandlerFunc {
+	itemHandler := generationJobsItemHandler(application)
+	cancelHandler := generationJobCancelHandler(application)
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/cancel") {
+			if r.Method != http.MethodPost {
+				w.Header().Set("Allow", http.MethodPost)
+				writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+				return
+			}
+			cancelHandler(w, r)
+			return
+		}
+
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", http.MethodGet)
+			writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+		itemHandler(w, r)
+	}
+}
+
 func writeGenerationError(application *app.APIApp, w http.ResponseWriter, err error) {
 	var providerErr *provider.Error
 	switch {
@@ -122,6 +176,13 @@ func generationJobIDFromPath(path string) (string, error) {
 		return "", requestValidationError{message: "generation job id is required"}
 	}
 	return id, nil
+}
+
+func generationJobCancelIDFromPath(path string) (string, error) {
+	if !strings.HasSuffix(path, "/cancel") {
+		return "", requestValidationError{message: "generation job id is required"}
+	}
+	return generationJobIDFromPath(strings.TrimSuffix(path, "/cancel"))
 }
 
 func parseOptionalInt(raw string, fallback int) int {

@@ -11,6 +11,11 @@ import type { GenerationJob } from "../types/generation";
 import type { WorldModelSummary } from "../types/worldModels";
 import { formatDateTime } from "../app/format";
 
+const DEPLOYMENT_PORT_MIN = 9000;
+const DEPLOYMENT_PORT_MAX = 9009;
+const LISTENER_PORT_MIN = 9010;
+const LISTENER_PORT_MAX = 9020;
+
 interface DeploymentsLoaderData {
   deployments: Deployment[];
   jobs: GenerationJob[];
@@ -104,11 +109,16 @@ export default function DeploymentsPage() {
     setIsSubmitting(true);
     setFormError(undefined);
     try {
+      const parsedPort = Number.parseInt(port, 10);
+      if (Number.isNaN(parsedPort) || parsedPort < DEPLOYMENT_PORT_MIN || parsedPort > DEPLOYMENT_PORT_MAX) {
+        throw new Error(`Deployment ports must stay within ${DEPLOYMENT_PORT_MIN}-${DEPLOYMENT_PORT_MAX}.`);
+      }
+
       const created = await createDeployment({
         generation_job_id: selectedJobID,
         world_model_id: job.world_model_id,
         protocol,
-        port: parseInt(port, 10),
+        port: parsedPort,
         root_path: rootPath,
       });
       setDeployments((prev) => [created, ...prev]);
@@ -155,11 +165,11 @@ export default function DeploymentsPage() {
     <div className="stack">
       <PageHeader
         title="Deployments"
-        description="Deploy generated file trees as standalone servers over HTTP, FTP, NFS, or SMB. Each deployment serves one generation job's output on a dedicated port. The same files can be deployed across multiple protocols."
+        description="Deploy generated file trees as standalone servers over HTTP, FTP, NFS, or SMB. Deployment ports stay within 9000-9009, while listener/passive ports stay reserved within 9010-9020. The same files can be deployed across multiple protocols."
       />
       {error ? <ErrorAlert message={error} /> : null}
       <div className="two-column">
-        <Panel title="Create deployment" subtitle="Serve a completed generation job on a dedicated port via HTTP, FTP, NFS, or SMB">
+        <Panel title="Create deployment" subtitle="Serve a completed generation job on a dedicated deployment port via HTTP, FTP, NFS, or SMB">
           <form className="stack stack--compact" onSubmit={handleCreate}>
             {formError ? <ErrorAlert message={formError} /> : null}
             <label>
@@ -183,21 +193,23 @@ export default function DeploymentsPage() {
               </select>
               <span className="field-hint">
                 {protocol === "http" && "Serve files over HTTP — ideal for web content."}
-                {protocol === "ftp" && "Serve files over FTP — anonymous read-only access with passive-mode clients and passive data ports reserved inside the deployment port range."}
-                {protocol === "nfs" && "Serve files over NFSv3 — mount 127.0.0.1:/mount from WSL or Linux using the selected port for both port and mountport."}
-                {protocol === "smb" && "Serve files over SMB using the read-only guest share named honeygen on the selected port. Native Windows SMB clients require port 445, so localhost testing is best done from WSL/Linux clients."}
+                {protocol === "ftp" && "Serve files over FTP — anonymous read-only access on deployment ports 9000-9009, with passive listener ports reserved in 9010-9020."}
+                {protocol === "nfs" && "Serve files over NFSv3 — mount 127.0.0.1:/mount from WSL or Linux using a deployment port in 9000-9009."}
+                {protocol === "smb" && "Serve files over SMB using the read-only guest share named honeygen on deployment ports 9000-9009. Native Windows SMB clients require port 445, so localhost testing is best done from WSL/Linux clients."}
               </span>
             </label>
             <label>
               Port
               <input
                 type="number"
-                min="1024"
-                max="65535"
+                min={DEPLOYMENT_PORT_MIN}
+                max={DEPLOYMENT_PORT_MAX}
                 value={port}
                 onChange={(e) => setPort(e.target.value)}
               />
-              <span className="field-hint">TCP port for the {protocol.toUpperCase()} server (1024–65535).</span>
+              <span className="field-hint">
+                TCP deployment port for the {protocol.toUpperCase()} server ({DEPLOYMENT_PORT_MIN}-{DEPLOYMENT_PORT_MAX}). Listener/passive ports {LISTENER_PORT_MIN}-{LISTENER_PORT_MAX} stay reserved.
+              </span>
             </label>
             <label>
               Root path

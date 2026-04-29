@@ -30,8 +30,7 @@ RUN apt-get update \
 USER appuser
 COPY --chown=appuser:appuser --from=build-api /out/api /app/api
 COPY --chown=appuser:appuser sample-data /app/sample-data
-ENV APP_ENV=development \
-    HTTP_ADDR=:8080 \
+ENV HTTP_ADDR=:8080 \
     SQLITE_PATH=/app/storage/sqlite/honeygen.db \
     GENERATED_ASSETS_DIR=/app/storage/generated
 EXPOSE 8080
@@ -39,8 +38,7 @@ ENTRYPOINT ["/app/api"]
 
 FROM runtime-base AS decoy-web
 COPY --chown=appuser:appuser --from=build-decoy-web /out/decoy-web /app/decoy-web
-ENV APP_ENV=development \
-    HTTP_ADDR=:8081 \
+ENV HTTP_ADDR=:8081 \
     GENERATED_ASSETS_DIR=/app/storage/generated
 EXPOSE 8081
 ENTRYPOINT ["/app/decoy-web"]

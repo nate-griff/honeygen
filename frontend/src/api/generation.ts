@@ -22,3 +22,9 @@ export async function listGenerationJobs(filters: {
 export function getGenerationJob(id: string): Promise<GenerationJob> {
   return apiRequest<GenerationJob>(`/api/generation/jobs/${id}`);
 }
+
+export function cancelGenerationJob(id: string): Promise<GenerationJob> {
+  return apiRequest<GenerationJob>(`/api/generation/jobs/${id}/cancel`, {
+    method: "POST",
+  });
+}

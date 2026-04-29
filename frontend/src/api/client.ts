@@ -1,6 +1,7 @@
 import type { APIErrorShape } from "../types/common";
 
 const configuredBaseUrl = (import.meta.env.VITE_API_BASE_URL ?? "").trim().replace(/\/+$/, "");
+export const unauthorizedEventName = "honeygen:unauthorized";
 
 export class APIClientError extends Error {
   status: number;
@@ -21,6 +22,12 @@ function hasAPIErrorShape(payload: unknown): payload is APIErrorShape {
 
   const { error } = payload as APIErrorShape;
   return typeof error?.code === "string" && typeof error?.message === "string";
+}
+
+function notifyUnauthorized() {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(unauthorizedEventName));
+  }
 }
 
 export function buildQuery(params: Record<string, string | number | null | undefined>): string {
@@ -51,6 +58,7 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
 
   const response = await fetch(resolveAPIPath(path), {
     ...init,
+    credentials: "include",
     headers,
   });
 
@@ -67,6 +75,9 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
   }
 
   if (!response.ok) {
+    if (response.status === 401) {
+      notifyUnauthorized();
+    }
     if (hasAPIErrorShape(payload)) {
       throw new APIClientError(response.status, payload.error.code, payload.error.message);
     }

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"sync"
 	"strings"
 	"testing"
 	"time"
@@ -35,12 +36,13 @@ func TestProviderTestEndpointReportsReadyProvider(t *testing.T) {
 
 	cfg := testProviderConfig(t, server.URL+"/v1")
 	application := newTestAPIAppWithConfig(t, cfg)
+	router := NewRouter(application)
 	application.Provider = provider.NewOpenAI(cfg.Provider, server.Client())
 
-	req := httptest.NewRequest(http.MethodPost, "/api/provider/test", nil)
+	req := authenticatedRequest(t, router, http.MethodPost, "/api/provider/test", nil)
 	rec := httptest.NewRecorder()
 
-	NewRouter(application).ServeHTTP(rec, req)
+	router.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status code = %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
@@ -60,6 +62,64 @@ func TestProviderTestEndpointReportsReadyProvider(t *testing.T) {
 	}
 }
 
+func TestProviderTestEndpointUsesSingleProviderSnapshotPerRequest(t *testing.T) {
+	t.Parallel()
+
+	initialCfg := testProviderConfig(t, "https://provider-a.example/v1")
+	updatedProviderConfig := config.ProviderConfig{
+		BaseURL: "https://provider-b.example/v1",
+		APIKey:  "updated-key",
+		Model:   "gpt-4.1-nano",
+	}
+
+	application := newTestAPIAppWithConfig(t, initialCfg)
+	router := NewRouter(application)
+
+	testProvider := &blockingTestProvider{
+		started:  make(chan struct{}),
+		release:  make(chan struct{}),
+		finished: make(chan struct{}),
+	}
+	application.Provider = testProvider
+
+	req := authenticatedRequest(t, router, http.MethodPost, "/api/provider/test", nil)
+	rec := httptest.NewRecorder()
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		router.ServeHTTP(rec, req)
+	}()
+
+	<-testProvider.started
+	application.UpdateProvider(updatedProviderConfig)
+	close(testProvider.release)
+	<-testProvider.finished
+	wg.Wait()
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status code = %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	var response struct {
+		Ready   bool   `json:"ready"`
+		Mode    string `json:"mode"`
+		BaseURL string `json:"base_url"`
+		Model   string `json:"model"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+
+	if response.BaseURL != initialCfg.Provider.BaseURL {
+		t.Fatalf("response.base_url = %q, want %q from the provider snapshot used to test readiness", response.BaseURL, initialCfg.Provider.BaseURL)
+	}
+	if response.Model != initialCfg.Provider.Model {
+		t.Fatalf("response.model = %q, want %q from the provider snapshot used to test readiness", response.Model, initialCfg.Provider.Model)
+	}
+}
+
 func TestProviderTestEndpointReportsConfigurationFailures(t *testing.T) {
 	t.Parallel()
 
@@ -67,12 +127,13 @@ func TestProviderTestEndpointReportsConfigurationFailures(t *testing.T) {
 	cfg.Provider.APIKey = ""
 
 	application := newTestAPIAppWithConfig(t, cfg)
+	router := NewRouter(application)
 	application.Provider = provider.NewOpenAI(cfg.Provider, nil)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/provider/test", nil)
+	req := authenticatedRequest(t, router, http.MethodPost, "/api/provider/test", nil)
 	rec := httptest.NewRecorder()
 
-	NewRouter(application).ServeHTTP(rec, req)
+	router.ServeHTTP(rec, req)
 
 	assertAPIErrorResponse(t, rec, http.StatusBadRequest, "", models.APIErrorResponse{
 		Error: models.APIError{
@@ -92,12 +153,13 @@ func TestProviderTestEndpointReportsUpstreamAuthFailures(t *testing.T) {
 
 	cfg := testProviderConfig(t, server.URL)
 	application := newTestAPIAppWithConfig(t, cfg)
+	router := NewRouter(application)
 	application.Provider = provider.NewOpenAI(cfg.Provider, server.Client())
 
-	req := httptest.NewRequest(http.MethodPost, "/api/provider/test", nil)
+	req := authenticatedRequest(t, router, http.MethodPost, "/api/provider/test", nil)
 	rec := httptest.NewRecorder()
 
-	NewRouter(application).ServeHTTP(rec, req)
+	router.ServeHTTP(rec, req)
 
 	assertAPIErrorResponse(t, rec, http.StatusBadGateway, "", models.APIErrorResponse{
 		Error: models.APIError{
@@ -117,13 +179,14 @@ func TestProviderTestEndpointPersistsFailureMessageWhenGenerationJobIDProvided(t
 
 	cfg := testProviderConfig(t, server.URL)
 	application := newTestAPIAppWithConfig(t, cfg)
+	router := NewRouter(application)
 	application.Provider = provider.NewOpenAI(cfg.Provider, server.Client())
 	seedGenerationJob(t, application, "world-1", "job-1")
 
-	req := httptest.NewRequest(http.MethodPost, "/api/provider/test", strings.NewReader(`{"generation_job_id":"job-1"}`))
+	req := authenticatedRequest(t, router, http.MethodPost, "/api/provider/test", strings.NewReader(`{"generation_job_id":"job-1"}`))
 	rec := httptest.NewRecorder()
 
-	NewRouter(application).ServeHTTP(rec, req)
+	router.ServeHTTP(rec, req)
 
 	assertAPIErrorResponse(t, rec, http.StatusBadGateway, "", models.APIErrorResponse{
 		Error: models.APIError{
@@ -156,16 +219,17 @@ func TestProviderTestEndpointPersistsFailureMessageWhenRequestContextCanceled(t 
 
 	cfg := testProviderConfig(t, "https://provider.example/v1")
 	application := newTestAPIAppWithConfig(t, cfg)
+	router := NewRouter(application)
 	application.Provider = contextCanceledTestProvider{}
 	seedGenerationJob(t, application, "world-1", "job-1")
 
-	req := httptest.NewRequest(http.MethodPost, "/api/provider/test", strings.NewReader(`{"generation_job_id":"job-1"}`))
+	req := authenticatedRequest(t, router, http.MethodPost, "/api/provider/test", strings.NewReader(`{"generation_job_id":"job-1"}`))
 	requestCtx, cancel := context.WithCancel(req.Context())
 	cancel()
 	req = req.WithContext(requestCtx)
 	rec := httptest.NewRecorder()
 
-	NewRouter(application).ServeHTTP(rec, req)
+	router.ServeHTTP(rec, req)
 
 	assertAPIErrorResponse(t, rec, http.StatusBadGateway, "", models.APIErrorResponse{
 		Error: models.APIError{
@@ -182,16 +246,17 @@ func TestProviderTestEndpointPersistsFailureMessageWhenRequestContextTimesOut(t 
 
 	cfg := testProviderConfig(t, "https://provider.example/v1")
 	application := newTestAPIAppWithConfig(t, cfg)
+	router := NewRouter(application)
 	application.Provider = contextCanceledTestProvider{}
 	seedGenerationJob(t, application, "world-1", "job-1")
 
-	req := httptest.NewRequest(http.MethodPost, "/api/provider/test", strings.NewReader(`{"generation_job_id":"job-1"}`))
+	req := authenticatedRequest(t, router, http.MethodPost, "/api/provider/test", strings.NewReader(`{"generation_job_id":"job-1"}`))
 	requestCtx, cancel := context.WithTimeout(req.Context(), time.Millisecond)
 	defer cancel()
 	req = req.WithContext(requestCtx)
 	rec := httptest.NewRecorder()
 
-	NewRouter(application).ServeHTTP(rec, req)
+	router.ServeHTTP(rec, req)
 
 	assertAPIErrorResponse(t, rec, http.StatusBadGateway, "", models.APIErrorResponse{
 		Error: models.APIError{
@@ -213,13 +278,14 @@ func TestProviderTestEndpointSkipsFailurePersistenceWithoutGenerationJobID(t *te
 
 	cfg := testProviderConfig(t, server.URL)
 	application := newTestAPIAppWithConfig(t, cfg)
+	router := NewRouter(application)
 	application.Provider = provider.NewOpenAI(cfg.Provider, server.Client())
 	seedGenerationJob(t, application, "world-1", "job-1")
 
-	req := httptest.NewRequest(http.MethodPost, "/api/provider/test", strings.NewReader(`{}`))
+	req := authenticatedRequest(t, router, http.MethodPost, "/api/provider/test", strings.NewReader(`{}`))
 	rec := httptest.NewRecorder()
 
-	NewRouter(application).ServeHTTP(rec, req)
+	router.ServeHTTP(rec, req)
 
 	assertAPIErrorResponse(t, rec, http.StatusBadGateway, "", models.APIErrorResponse{
 		Error: models.APIError{
@@ -240,12 +306,13 @@ func TestProviderTestEndpointReportsConnectivityFailures(t *testing.T) {
 
 	cfg := testProviderConfig(t, baseURL)
 	application := newTestAPIAppWithConfig(t, cfg)
+	router := NewRouter(application)
 	application.Provider = provider.NewOpenAI(cfg.Provider, server.Client())
 
-	req := httptest.NewRequest(http.MethodPost, "/api/provider/test", nil)
+	req := authenticatedRequest(t, router, http.MethodPost, "/api/provider/test", nil)
 	rec := httptest.NewRecorder()
 
-	NewRouter(application).ServeHTTP(rec, req)
+	router.ServeHTTP(rec, req)
 
 	assertAPIErrorResponse(t, rec, http.StatusBadGateway, "", models.APIErrorResponse{
 		Error: models.APIError{
@@ -266,12 +333,13 @@ func TestProviderTestEndpointReportsInvalidResponses(t *testing.T) {
 
 	cfg := testProviderConfig(t, server.URL)
 	application := newTestAPIAppWithConfig(t, cfg)
+	router := NewRouter(application)
 	application.Provider = provider.NewOpenAI(cfg.Provider, server.Client())
 
-	req := httptest.NewRequest(http.MethodPost, "/api/provider/test", nil)
+	req := authenticatedRequest(t, router, http.MethodPost, "/api/provider/test", nil)
 	rec := httptest.NewRecorder()
 
-	NewRouter(application).ServeHTTP(rec, req)
+	router.ServeHTTP(rec, req)
 
 	assertAPIErrorResponse(t, rec, http.StatusBadGateway, "", models.APIErrorResponse{
 		Error: models.APIError{
@@ -291,12 +359,13 @@ func TestProviderTestEndpointReportsUpstreamFailures(t *testing.T) {
 
 	cfg := testProviderConfig(t, server.URL)
 	application := newTestAPIAppWithConfig(t, cfg)
+	router := NewRouter(application)
 	application.Provider = provider.NewOpenAI(cfg.Provider, server.Client())
 
-	req := httptest.NewRequest(http.MethodPost, "/api/provider/test", nil)
+	req := authenticatedRequest(t, router, http.MethodPost, "/api/provider/test", nil)
 	rec := httptest.NewRecorder()
 
-	NewRouter(application).ServeHTTP(rec, req)
+	router.ServeHTTP(rec, req)
 
 	assertAPIErrorResponse(t, rec, http.StatusBadGateway, "", models.APIErrorResponse{
 		Error: models.APIError{
@@ -328,13 +397,16 @@ func testProviderConfig(t *testing.T, baseURL string) config.Config {
 
 	root := t.TempDir()
 	return config.Config{
-		ServiceName:        "honeygen-api",
-		ServiceVersion:     "test",
-		AppEnv:             "test",
-		HTTPAddr:           ":0",
-		SQLitePath:         filepath.Join(root, "api.db"),
-		GeneratedAssetsDir: filepath.Join(root, "generated"),
-		StorageRoot:        filepath.Join(root, "storage"),
+		ServiceName:                 "honeygen-api",
+		ServiceVersion:              "test",
+		AppEnv:                      "test",
+		HTTPAddr:                    ":0",
+		AdminPassword:               "test-admin-password",
+		InternalEventIngestToken:    "test-internal-event-token",
+		ProviderConfigEncryptionKey: "test-provider-config-encryption-key",
+		SQLitePath:                  filepath.Join(root, "api.db"),
+		GeneratedAssetsDir:          filepath.Join(root, "generated"),
+		StorageRoot:                 filepath.Join(root, "storage"),
 		Provider: config.ProviderConfig{
 			BaseURL: baseURL,
 			APIKey:  "test-key",
@@ -371,6 +443,26 @@ func assertGenerationJobErrorMessage(t *testing.T, application *app.APIApp, jobI
 	if message != want {
 		t.Fatalf("error_message = %q, want %q", message, want)
 	}
+}
+
+type blockingTestProvider struct {
+	started  chan struct{}
+	release  chan struct{}
+	finished chan struct{}
+	once     sync.Once
+}
+
+func (p *blockingTestProvider) Generate(context.Context, provider.GenerateRequest) (provider.GenerateResponse, error) {
+	return provider.GenerateResponse{}, nil
+}
+
+func (p *blockingTestProvider) Test(context.Context) error {
+	p.once.Do(func() {
+		close(p.started)
+	})
+	<-p.release
+	close(p.finished)
+	return nil
 }
 
 type contextCanceledTestProvider struct{}

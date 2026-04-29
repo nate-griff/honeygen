@@ -5,13 +5,17 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	appdb "github.com/natet/honeygen/backend/internal/db"
+	sqlite "modernc.org/sqlite"
+	sqlite3 "modernc.org/sqlite/lib"
 )
 
 var ErrNotFound = errors.New("deployment not found")
+var ErrPortConflict = errors.New("deployment port conflict")
 
 const nfsMountPath = "/mount"
 
@@ -55,6 +59,9 @@ func (r *Repository) Create(ctx context.Context, d Deployment) (Deployment, erro
 		INSERT INTO deployments (id, generation_job_id, world_model_id, protocol, port, root_path, status)
 		VALUES (?, ?, ?, ?, ?, ?, ?)
 	`, d.ID, d.GenerationJobID, d.WorldModelID, d.Protocol, d.Port, d.RootPath, d.Status); err != nil {
+		if isDuplicateDeploymentPortError(err) {
+			return Deployment{}, fmt.Errorf("create deployment %q: %w: %v", d.ID, ErrPortConflict, err)
+		}
 		return Deployment{}, fmt.Errorf("create deployment %q: %w", d.ID, err)
 	}
 
@@ -162,6 +169,17 @@ func (r *Repository) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
+func (r *Repository) ExistsPort(ctx context.Context, port int) (bool, error) {
+	row := r.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM deployments WHERE port = ?)`, port)
+
+	var exists bool
+	if err := row.Scan(&exists); err != nil {
+		return false, fmt.Errorf("check deployment port %d: %w", port, err)
+	}
+
+	return exists, nil
+}
+
 type rowScanner interface {
 	Scan(dest ...any) error
 }
@@ -205,4 +223,19 @@ func scanDeployment(scanner rowScanner) (Deployment, error) {
 	}
 
 	return d, nil
+}
+
+func isDuplicateDeploymentPortError(err error) bool {
+	var sqliteErr *sqlite.Error
+	if !errors.As(err, &sqliteErr) {
+		return false
+	}
+
+	switch sqliteErr.Code() {
+	case sqlite3.SQLITE_CONSTRAINT_UNIQUE, sqlite3.SQLITE_CONSTRAINT_PRIMARYKEY:
+		message := strings.ToLower(sqliteErr.Error())
+		return strings.Contains(message, "deployments.port") || strings.Contains(message, "idx_deployments_port_unique")
+	default:
+		return false
+	}
 }

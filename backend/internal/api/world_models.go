@@ -192,7 +192,13 @@ func handleWorldModelGenerate(application *app.APIApp, w http.ResponseWriter, r 
 	ctx, cancel := context.WithTimeout(r.Context(), worldModelGenerateTimeout)
 	defer cancel()
 
-	result, err := application.Provider.Generate(ctx, provider.GenerateRequest{
+	currentProvider := application.CurrentProvider()
+	if currentProvider == nil {
+		writeProviderError(application, w, &provider.Error{Kind: provider.KindConfig, Message: "provider is not configured"})
+		return
+	}
+
+	result, err := currentProvider.Generate(ctx, provider.GenerateRequest{
 		SystemPrompt: worldModelSystemPrompt(),
 		Prompt:       request.Description,
 		Metadata:     map[string]string{"task": "world_model_generation"},

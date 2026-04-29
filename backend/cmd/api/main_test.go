@@ -13,13 +13,16 @@ import (
 
 func TestRunShutsDownOnContextCancellation(t *testing.T) {
 	cfg := config.Config{
-		ServiceName:        "honeygen-api",
-		ServiceVersion:     "test",
-		AppEnv:             "test",
-		HTTPAddr:           "127.0.0.1:0",
-		SQLitePath:         filepath.Join(t.TempDir(), "api.db"),
-		GeneratedAssetsDir: filepath.Join(t.TempDir(), "generated"),
-		StorageRoot:        filepath.Join(t.TempDir(), "storage"),
+		ServiceName:                 "honeygen-api",
+		ServiceVersion:              "test",
+		AppEnv:                      "test",
+		HTTPAddr:                    "127.0.0.1:0",
+		AdminPassword:               "test-admin-password",
+		ProviderConfigEncryptionKey: "test-provider-config-encryption-key",
+		InternalEventIngestToken:    "test-internal-event-token",
+		SQLitePath:                  filepath.Join(t.TempDir(), "api.db"),
+		GeneratedAssetsDir:          filepath.Join(t.TempDir(), "generated"),
+		StorageRoot:                 filepath.Join(t.TempDir(), "storage"),
 	}
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))

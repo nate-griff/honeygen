@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLoaderData, useNavigate } from "react-router-dom";
-import { listGenerationJobs, runGeneration } from "../api/generation";
+import { cancelGenerationJob, listGenerationJobs, runGeneration } from "../api/generation";
 import { getStatus } from "../api/status";
 import { listWorldModels } from "../api/worldModels";
+import { ErrorAlert } from "../components/layout/ErrorAlert";
 import { PageHeader } from "../components/layout/PageHeader";
 import { Panel } from "../components/layout/Panel";
-import { ErrorAlert } from "../components/layout/ErrorAlert";
 import { GenerationJobsList } from "../components/generation/GenerationJobsList";
 import { GenerationRunPanel } from "../components/generation/GenerationRunPanel";
 import type { GenerationJob } from "../types/generation";
@@ -38,12 +38,16 @@ export default function GenerationPage() {
   const [jobs, setJobs] = useState(loaderData.jobs);
   const [selectedWorldModelID, setSelectedWorldModelID] = useState(loaderData.selectedWorldModelID);
   const [runError, setRunError] = useState<string>();
+  const [cancelError, setCancelError] = useState<string>();
   const [pollError, setPollError] = useState<string>();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [cancelingJobIDs, setCancelingJobIDs] = useState<string[]>([]);
 
   useEffect(() => {
     setJobs(loaderData.jobs);
     setSelectedWorldModelID(loaderData.selectedWorldModelID);
+    setCancelError(undefined);
+    setCancelingJobIDs([]);
     setPollError(undefined);
   }, [loaderData.jobs, loaderData.selectedWorldModelID]);
 
@@ -94,6 +98,7 @@ export default function GenerationPage() {
 
     setIsSubmitting(true);
     setRunError(undefined);
+    setCancelError(undefined);
     setPollError(undefined);
     try {
       const createdJob = await runGeneration(selectedWorldModelID);
@@ -108,8 +113,23 @@ export default function GenerationPage() {
 
   function handleWorldModelChange(id: string) {
     setSelectedWorldModelID(id);
+    setCancelError(undefined);
     setPollError(undefined);
     navigate(`/generation?world_model_id=${id}`);
+  }
+
+  async function handleCancel(jobID: string) {
+    setCancelError(undefined);
+    setPollError(undefined);
+    setCancelingJobIDs((current) => [...current, jobID]);
+    try {
+      const canceledJob = await cancelGenerationJob(jobID);
+      setJobs((currentJobs) => currentJobs.map((job) => (job.id === canceledJob.id ? canceledJob : job)));
+    } catch (error) {
+      setCancelError(error instanceof Error ? error.message : "Unable to cancel generation job");
+    } finally {
+      setCancelingJobIDs((current) => current.filter((id) => id !== jobID));
+    }
   }
 
   return (
@@ -145,15 +165,16 @@ export default function GenerationPage() {
               <dd>{loaderData.status.provider.model || "—"}</dd>
             </div>
             <div>
-              <dt>Base URL</dt>
-              <dd>{loaderData.status.provider.base_url || "—"}</dd>
+              <dt>Provider mode</dt>
+              <dd>{loaderData.status.provider.mode}</dd>
             </div>
           </dl>
         </Panel>
       </div>
       <Panel title="Recent jobs" subtitle="Latest live jobs for the selected world model">
+        {cancelError ? <ErrorAlert message={cancelError} /> : null}
         {pollError ? <ErrorAlert message={pollError} /> : null}
-        <GenerationJobsList jobs={jobs} />
+        <GenerationJobsList cancelingJobIDs={cancelingJobIDs} jobs={jobs} onCancel={handleCancel} />
       </Panel>
     </div>
   );

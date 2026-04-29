@@ -197,6 +197,172 @@ func TestServiceRunReturnsBeforeBackgroundGenerationCompletes(t *testing.T) {
 	}
 }
 
+func TestServiceCancelMarksRunningJobCanceled(t *testing.T) {
+	t.Parallel()
+
+	database := newGenerationTestDatabase(t)
+	repo := worldmodels.NewRepository(database)
+	if _, err := repo.Create(context.Background(), StoredWorldModelForTest("world-1")); err != nil {
+		t.Fatalf("Create() world model error = %v", err)
+	}
+
+	provider := cancelableBlockingGenerationProvider{
+		started:  make(chan struct{}, 1),
+		canceled: make(chan struct{}, 1),
+	}
+	service := NewService(ServiceConfig{
+		WorldModels: repo,
+		Planner:     NewPlanner(),
+		Provider:    provider,
+		Jobs:        NewJobStore(database),
+		Assets:      assets.NewRepository(database),
+		Storage:     storage.NewFilesystem(t.TempDir()),
+		Renderers: rendering.NewRegistry(rendering.RegistryConfig{
+			PDF: rendering.StaticPDFRenderer([]byte("%PDF-1.4\n%stub\n")),
+		}),
+	})
+	t.Cleanup(func() {
+		if err := service.Close(); err != nil {
+			t.Fatalf("Close() error = %v", err)
+		}
+	})
+
+	job, err := service.Run(context.Background(), RunRequest{WorldModelID: "world-1"})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	waitForSignal(t, provider.started, "background generation did not start")
+
+	canceledJob, err := service.Cancel(context.Background(), job.ID)
+	if err != nil {
+		t.Fatalf("Cancel() error = %v", err)
+	}
+	if canceledJob.Status != StatusCanceled {
+		t.Fatalf("canceledJob.Status = %q, want %q", canceledJob.Status, StatusCanceled)
+	}
+
+	waitForSignal(t, provider.canceled, "provider context was not canceled")
+
+	storedJob := waitForJobStatus(t, NewJobStore(database), job.ID, StatusCanceled)
+	if storedJob.CompletedAt == nil {
+		t.Fatal("storedJob.CompletedAt is nil")
+	}
+	if !strings.Contains(strings.ToLower(storedJob.ErrorMessage), "canceled") {
+		t.Fatalf("storedJob.ErrorMessage = %q, want cancellation message", storedJob.ErrorMessage)
+	}
+	if len(storedJob.Summary.Logs) == 0 {
+		t.Fatal("storedJob.Summary.Logs is empty")
+	}
+	if !strings.Contains(strings.ToLower(storedJob.Summary.Logs[len(storedJob.Summary.Logs)-1].Message), "canceled") {
+		t.Fatalf("last log message = %q, want cancellation entry", storedJob.Summary.Logs[len(storedJob.Summary.Logs)-1].Message)
+	}
+}
+
+func TestServiceCancelDuringPersistenceKeepsPersistedAssetAndSummaryConsistent(t *testing.T) {
+	t.Parallel()
+
+	database := newGenerationTestDatabase(t)
+	repo := worldmodels.NewRepository(database)
+	if _, err := repo.Create(context.Background(), StoredWorldModelForTest("world-1")); err != nil {
+		t.Fatalf("Create() world model error = %v", err)
+	}
+
+	root := t.TempDir()
+	assetsRepo := assets.NewRepository(database)
+	assetsSpy := &blockingAssetWriter{
+		repo:      assetsRepo,
+		attempted: make(chan struct{}, 1),
+		release:   make(chan struct{}),
+	}
+
+	service := NewService(ServiceConfig{
+		WorldModels: repo,
+		Planner:     NewPlanner(),
+		Provider:    generationStubProvider{},
+		Jobs:        NewJobStore(database),
+		Assets:      assetsSpy,
+		Storage:     storage.NewFilesystem(root),
+		Renderers: rendering.NewRegistry(rendering.RegistryConfig{
+			PDF: rendering.StaticPDFRenderer([]byte("%PDF-1.4\n%stub\n")),
+		}),
+	})
+	t.Cleanup(func() {
+		if err := service.Close(); err != nil {
+			t.Fatalf("Close() error = %v", err)
+		}
+	})
+
+	job, err := service.Run(context.Background(), RunRequest{WorldModelID: "world-1"})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	waitForSignal(t, assetsSpy.attempted, "asset persistence did not start")
+
+	canceledJob, err := service.Cancel(context.Background(), job.ID)
+	if err != nil {
+		t.Fatalf("Cancel() error = %v", err)
+	}
+	if canceledJob.Status != StatusCanceled {
+		t.Fatalf("canceledJob.Status = %q, want %q", canceledJob.Status, StatusCanceled)
+	}
+	close(assetsSpy.release)
+
+	storedJob, items := waitForCanceledJobAssetCount(t, NewJobStore(database), assetsRepo, job.ID, 1)
+	if storedJob.Summary.AssetCount != len(items) {
+		t.Fatalf("storedJob.Summary.AssetCount = %d, want %d", storedJob.Summary.AssetCount, len(items))
+	}
+	fullPath := filepath.Join(root, filepath.FromSlash(items[0].Path))
+	if _, err := os.Stat(fullPath); err != nil {
+		t.Fatalf("persisted file %q missing: %v", fullPath, err)
+	}
+}
+
+func TestServiceCloseCancelsRunningJobs(t *testing.T) {
+	t.Parallel()
+
+	database := newGenerationTestDatabase(t)
+	repo := worldmodels.NewRepository(database)
+	if _, err := repo.Create(context.Background(), StoredWorldModelForTest("world-1")); err != nil {
+		t.Fatalf("Create() world model error = %v", err)
+	}
+
+	provider := cancelableBlockingGenerationProvider{
+		started:  make(chan struct{}, 1),
+		canceled: make(chan struct{}, 1),
+	}
+	service := NewService(ServiceConfig{
+		WorldModels: repo,
+		Planner:     NewPlanner(),
+		Provider:    provider,
+		Jobs:        NewJobStore(database),
+		Assets:      assets.NewRepository(database),
+		Storage:     storage.NewFilesystem(t.TempDir()),
+		Renderers: rendering.NewRegistry(rendering.RegistryConfig{
+			PDF: rendering.StaticPDFRenderer([]byte("%PDF-1.4\n%stub\n")),
+		}),
+	})
+
+	job, err := service.Run(context.Background(), RunRequest{WorldModelID: "world-1"})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	waitForSignal(t, provider.started, "background generation did not start")
+
+	if err := service.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+
+	waitForSignal(t, provider.canceled, "provider context was not canceled during shutdown")
+
+	storedJob := waitForJobStatus(t, NewJobStore(database), job.ID, StatusCanceled)
+	if storedJob.CompletedAt == nil {
+		t.Fatal("storedJob.CompletedAt is nil")
+	}
+}
+
 func newGenerationTestDatabase(t *testing.T) *sql.DB {
 	t.Helper()
 
@@ -297,6 +463,45 @@ func (p blockingGenerationProvider) Generate(_ context.Context, request provider
 
 func (blockingGenerationProvider) Test(context.Context) error { return nil }
 
+type cancelableBlockingGenerationProvider struct {
+	started  chan struct{}
+	canceled chan struct{}
+}
+
+func (p cancelableBlockingGenerationProvider) Generate(ctx context.Context, request provider.GenerateRequest) (provider.GenerateResponse, error) {
+	select {
+	case p.started <- struct{}{}:
+	default:
+	}
+
+	<-ctx.Done()
+
+	select {
+	case p.canceled <- struct{}{}:
+	default:
+	}
+
+	return provider.GenerateResponse{}, ctx.Err()
+}
+
+func (cancelableBlockingGenerationProvider) Test(context.Context) error { return nil }
+
+type blockingAssetWriter struct {
+	repo      *assets.Repository
+	attempted chan struct{}
+	release   chan struct{}
+}
+
+func (w *blockingAssetWriter) Create(ctx context.Context, asset assets.Asset) (assets.Asset, error) {
+	select {
+	case w.attempted <- struct{}{}:
+	default:
+	}
+
+	<-w.release
+	return w.repo.Create(ctx, asset)
+}
+
 func waitForJobStatus(t *testing.T, store *JobStore, jobID, wantStatus string) Job {
 	t.Helper()
 
@@ -315,6 +520,41 @@ func waitForJobStatus(t *testing.T, store *JobStore, jobID, wantStatus string) J
 	}
 	t.Fatalf("job.Status = %q, want %q", job.Status, wantStatus)
 	return Job{}
+}
+
+func waitForCanceledJobAssetCount(t *testing.T, store *JobStore, repo *assets.Repository, jobID string, wantCount int) (Job, []assets.Asset) {
+	t.Helper()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		job, jobErr := store.Get(context.Background(), jobID)
+		items, assetsErr := repo.List(context.Background(), assets.ListOptions{GenerationJobID: jobID, Limit: 10})
+		if jobErr == nil && assetsErr == nil && job.Status == StatusCanceled && job.Summary.AssetCount == wantCount && len(items) == wantCount {
+			return job, items
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	job, err := store.Get(context.Background(), jobID)
+	if err != nil {
+		t.Fatalf("Get() job error = %v", err)
+	}
+	items, err := repo.List(context.Background(), assets.ListOptions{GenerationJobID: jobID, Limit: 10})
+	if err != nil {
+		t.Fatalf("List() assets error = %v", err)
+	}
+	t.Fatalf("job.Status = %q asset_count=%d listed_assets=%d, want canceled and %d assets", job.Status, job.Summary.AssetCount, len(items), wantCount)
+	return Job{}, nil
+}
+
+func waitForSignal(t *testing.T, signal <-chan struct{}, message string) {
+	t.Helper()
+
+	select {
+	case <-signal:
+	case <-time.After(2 * time.Second):
+		t.Fatal(message)
+	}
 }
 
 func TestCleanProviderResponse(t *testing.T) {

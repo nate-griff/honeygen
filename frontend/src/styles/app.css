@@ -110,6 +110,7 @@ textarea {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
   gap: 1rem;
   padding: 1.2rem 2rem;
   border-bottom: 1px solid #dbe4f0;
@@ -160,6 +161,7 @@ textarea {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
+  flex-wrap: wrap;
   gap: 1rem;
 }
 
@@ -194,6 +196,7 @@ textarea {
 .stat-card {
   display: grid;
   gap: 0.5rem;
+  min-width: 0;
 }
 
 .stat-card span,
@@ -206,6 +209,12 @@ dt {
   font-size: 1.15rem;
 }
 
+.stat-card__value {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
 .status-badge,
 .loading-chip {
   display: inline-flex;
@@ -215,6 +224,9 @@ dt {
   padding: 0.3rem 0.7rem;
   font-size: 0.82rem;
   font-weight: 700;
+  max-width: 100%;
+  white-space: normal;
+  text-align: center;
 }
 
 .status-badge--success {
@@ -371,12 +383,23 @@ dt {
 
 dd {
   font-weight: 600;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .detail-grid .code-inline,
 .code-inline {
   overflow-wrap: anywhere;
+  word-break: break-word;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.detail-grid > div,
+.inline-metrics > div,
+.panel__header > div,
+.page-header > div,
+.list-card__title-row > * {
+  min-width: 0;
 }
 
 .form-grid {
@@ -516,6 +539,20 @@ dd {
   margin-bottom: 0;
 }
 
+.preview-surface--frame {
+  padding: 0;
+  overflow: hidden;
+}
+
+.preview-frame {
+  display: block;
+  width: 100%;
+  min-height: 28rem;
+  border: 0;
+  background: #ffffff;
+  border-radius: inherit;
+}
+
 .preview-text {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -539,10 +576,36 @@ dd {
   white-space: nowrap;
 }
 
-@media (max-width: 1120px) {
+@media (max-width: 1400px) {
   .stats-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+}
+
+.app-toolbar__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.login-screen {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+}
+
+.login-card {
+  width: min(28rem, 100%);
+  background: #fff;
+  border: 1px solid #dbe4f0;
+  border-radius: 1rem;
+  padding: 2rem;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+}
+
+.login-card h1 {
+  margin: 0.35rem 0 0.75rem;
 }
 
 @media (max-width: 960px) {

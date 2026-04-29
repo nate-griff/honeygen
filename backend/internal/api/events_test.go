@@ -15,6 +15,7 @@ import (
 
 func TestInternalEventIngestionIsVisibleThroughPublicEventsAPI(t *testing.T) {
 	application := newTestAPIApp(t)
+	router := NewRouter(application)
 	seedGenerationJob(t, application, "world-1", "job-1")
 
 	if _, err := application.AssetRepo.Create(context.Background(), assets.Asset{
@@ -49,7 +50,7 @@ func TestInternalEventIngestionIsVisibleThroughPublicEventsAPI(t *testing.T) {
 	createReq.Header.Set(events.InternalIngestTokenHeader, application.Config.InternalEventIngestToken)
 	createRec := httptest.NewRecorder()
 
-	NewRouter(application).ServeHTTP(createRec, createReq)
+	router.ServeHTTP(createRec, createReq)
 
 	if createRec.Code != http.StatusCreated {
 		t.Fatalf("POST /internal/events status = %d, want %d, body=%s", createRec.Code, http.StatusCreated, createRec.Body.String())
@@ -69,10 +70,10 @@ func TestInternalEventIngestionIsVisibleThroughPublicEventsAPI(t *testing.T) {
 		t.Fatalf("created.Path = %q, want %q", created.Path, "/generated/world-1/job-1/public/report.html")
 	}
 
-	listReq := httptest.NewRequest(http.MethodGet, "/api/events?limit=1&offset=0&world_model_id=world-1&path=%2Fgenerated%2Fworld-1&source_ip=203.0.113.10&status_code=200", nil)
+	listReq := authenticatedRequest(t, router, http.MethodGet, "/api/events?limit=1&offset=0&world_model_id=world-1&path=%2Fgenerated%2Fworld-1&source_ip=203.0.113.10&status_code=200", nil)
 	listRec := httptest.NewRecorder()
 
-	NewRouter(application).ServeHTTP(listRec, listReq)
+	router.ServeHTTP(listRec, listReq)
 
 	if listRec.Code != http.StatusOK {
 		t.Fatalf("GET /api/events status = %d, want %d, body=%s", listRec.Code, http.StatusOK, listRec.Body.String())
@@ -91,10 +92,10 @@ func TestInternalEventIngestionIsVisibleThroughPublicEventsAPI(t *testing.T) {
 		t.Fatalf("list item ID = %q, want %q", listResponse.Items[0].ID, created.ID)
 	}
 
-	getReq := httptest.NewRequest(http.MethodGet, "/api/events/"+created.ID, nil)
+	getReq := authenticatedRequest(t, router, http.MethodGet, "/api/events/"+created.ID, nil)
 	getRec := httptest.NewRecorder()
 
-	NewRouter(application).ServeHTTP(getRec, getReq)
+	router.ServeHTTP(getRec, getReq)
 
 	if getRec.Code != http.StatusOK {
 		t.Fatalf("GET /api/events/:id status = %d, want %d, body=%s", getRec.Code, http.StatusOK, getRec.Body.String())

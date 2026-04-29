@@ -2,16 +2,17 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 )
 
 const (
 	defaultServiceName        = "honeygen-api"
 	defaultServiceVersion     = "dev"
-	defaultAppEnv             = "development"
 	defaultHTTPAddr           = ":8080"
 	defaultSQLitePath         = "/app/storage/sqlite/honeygen.db"
 	defaultGeneratedAssetsDir = "/app/storage/generated"
@@ -19,19 +20,21 @@ const (
 )
 
 type Config struct {
-	ServiceName              string         `json:"service_name"`
-	ServiceVersion           string         `json:"service_version"`
-	AppEnv                   string         `json:"app_env"`
-	HTTPAddr                 string         `json:"http_addr"`
-	FTPPublicHost            string         `json:"ftp_public_host"`
-	FTPPassivePorts          string         `json:"ftp_passive_ports"`
-	InternalEventIngestToken string         `json:"internal_event_ingest_token"`
-	SQLitePath               string         `json:"sqlite_path"`
-	GeneratedAssetsDir       string         `json:"generated_assets_dir"`
-	StorageRoot              string         `json:"storage_root"`
-	InternalAPIBaseURL       string         `json:"internal_api_base_url"`
-	ConfigFilePath           string         `json:"-"`
-	Provider                 ProviderConfig `json:"provider"`
+	ServiceName                 string         `json:"service_name"`
+	ServiceVersion              string         `json:"service_version"`
+	AppEnv                      string         `json:"app_env"`
+	HTTPAddr                    string         `json:"http_addr"`
+	FTPPublicHost               string         `json:"ftp_public_host"`
+	FTPPassivePorts             string         `json:"ftp_passive_ports"`
+	InternalEventIngestToken    string         `json:"internal_event_ingest_token"`
+	AdminPassword               string         `json:"-"`
+	ProviderConfigEncryptionKey string         `json:"-"`
+	SQLitePath                  string         `json:"sqlite_path"`
+	GeneratedAssetsDir          string         `json:"generated_assets_dir"`
+	StorageRoot                 string         `json:"storage_root"`
+	InternalAPIBaseURL          string         `json:"internal_api_base_url"`
+	ConfigFilePath              string         `json:"-"`
+	Provider                    ProviderConfig `json:"provider"`
 }
 
 type ProviderConfig struct {
@@ -84,7 +87,6 @@ func LoadWithDefaults(configPath string, defaults Config) (Config, error) {
 	cfg := Config{
 		ServiceName:        defaultServiceName,
 		ServiceVersion:     defaultServiceVersion,
-		AppEnv:             defaultAppEnv,
 		HTTPAddr:           defaultHTTPAddr,
 		SQLitePath:         defaultSQLitePath,
 		GeneratedAssetsDir: defaultGeneratedAssetsDir,
@@ -97,6 +99,8 @@ func LoadWithDefaults(configPath string, defaults Config) (Config, error) {
 	applyDefaultString(&cfg.FTPPublicHost, defaults.FTPPublicHost)
 	applyDefaultString(&cfg.FTPPassivePorts, defaults.FTPPassivePorts)
 	applyDefaultString(&cfg.InternalEventIngestToken, defaults.InternalEventIngestToken)
+	applyDefaultString(&cfg.AdminPassword, defaults.AdminPassword)
+	applyDefaultString(&cfg.ProviderConfigEncryptionKey, defaults.ProviderConfigEncryptionKey)
 	applyDefaultString(&cfg.SQLitePath, defaults.SQLitePath)
 	applyDefaultString(&cfg.GeneratedAssetsDir, defaults.GeneratedAssetsDir)
 	applyDefaultString(&cfg.StorageRoot, defaults.StorageRoot)
@@ -123,6 +127,8 @@ func LoadWithDefaults(configPath string, defaults Config) (Config, error) {
 	applyEnvOverride(&cfg.FTPPublicHost, "FTP_PUBLIC_HOST")
 	applyEnvOverride(&cfg.FTPPassivePorts, "FTP_PASSIVE_PORTS")
 	applyEnvOverride(&cfg.InternalEventIngestToken, "INTERNAL_EVENT_INGEST_TOKEN")
+	applyEnvOverride(&cfg.AdminPassword, "ADMIN_PASSWORD")
+	applyEnvOverride(&cfg.ProviderConfigEncryptionKey, "PROVIDER_CONFIG_ENCRYPTION_KEY")
 	applyEnvOverride(&cfg.SQLitePath, "SQLITE_PATH")
 	applyEnvOverride(&cfg.GeneratedAssetsDir, "GENERATED_ASSETS_DIR")
 	applyEnvOverride(&cfg.StorageRoot, "STORAGE_ROOT")
@@ -133,6 +139,17 @@ func LoadWithDefaults(configPath string, defaults Config) (Config, error) {
 
 	if cfg.StorageRoot == "" {
 		cfg.StorageRoot = deriveStorageRoot(cfg.SQLitePath, cfg.GeneratedAssetsDir)
+	}
+
+	var validationErrors []string
+	if strings.TrimSpace(cfg.AppEnv) == "" {
+		validationErrors = append(validationErrors, "APP_ENV must be set")
+	}
+	if strings.TrimSpace(cfg.InternalEventIngestToken) == "" {
+		validationErrors = append(validationErrors, "INTERNAL_EVENT_INGEST_TOKEN must be set")
+	}
+	if len(validationErrors) > 0 {
+		return Config{}, errors.New(strings.Join(validationErrors, "; "))
 	}
 
 	return cfg, nil

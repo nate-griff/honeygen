@@ -5,16 +5,10 @@ export interface StatusResponse {
   };
   database: {
     ready: boolean;
-    path: string;
-  };
-  storage: {
-    root: string;
-    generated_assets_dir: string;
   };
   provider: {
     mode: string;
     ready: boolean;
-    base_url?: string;
     model?: string;
   };
   counts: {

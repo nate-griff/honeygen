@@ -3,7 +3,6 @@ package models
 type StatusResponse struct {
 	Service      ServiceStatus        `json:"service"`
 	Database     DatabaseStatus       `json:"database"`
-	Storage      StorageStatus        `json:"storage"`
 	Provider     ProviderStatus       `json:"provider"`
 	Counts       StatusCounts         `json:"counts"`
 	RecentEvents []RecentEventSummary `json:"recent_events"`
@@ -16,20 +15,13 @@ type ServiceStatus struct {
 }
 
 type DatabaseStatus struct {
-	Ready bool   `json:"ready"`
-	Path  string `json:"path"`
-}
-
-type StorageStatus struct {
-	Root               string `json:"root"`
-	GeneratedAssetsDir string `json:"generated_assets_dir"`
+	Ready bool `json:"ready"`
 }
 
 type ProviderStatus struct {
-	Mode    string `json:"mode"`
-	Ready   bool   `json:"ready"`
-	BaseURL string `json:"base_url,omitempty"`
-	Model   string `json:"model,omitempty"`
+	Mode  string `json:"mode"`
+	Ready bool   `json:"ready"`
+	Model string `json:"model,omitempty"`
 }
 
 type StatusCounts struct {

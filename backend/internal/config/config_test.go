@@ -12,6 +12,8 @@ func TestLoadMergesDefaultsConfigFileAndEnvironment(t *testing.T) {
 	t.Setenv("FTP_PUBLIC_HOST", "127.0.0.1")
 	t.Setenv("FTP_PASSIVE_PORTS", "9100-9199")
 	t.Setenv("LLM_API_KEY", "env-key")
+	t.Setenv("ADMIN_PASSWORD", "env-admin-password")
+	t.Setenv("PROVIDER_CONFIG_ENCRYPTION_KEY", "env-provider-config-encryption-key")
 	t.Setenv("INTERNAL_API_BASE_URL", "http://api.internal:8080")
 	t.Setenv("INTERNAL_EVENT_INGEST_TOKEN", "env-internal-token")
 
@@ -70,36 +72,28 @@ func TestLoadMergesDefaultsConfigFileAndEnvironment(t *testing.T) {
 	if cfg.InternalEventIngestToken != "env-internal-token" {
 		t.Fatalf("InternalEventIngestToken = %q, want %q", cfg.InternalEventIngestToken, "env-internal-token")
 	}
+	if cfg.AdminPassword != "env-admin-password" {
+		t.Fatalf("AdminPassword = %q, want %q", cfg.AdminPassword, "env-admin-password")
+	}
+	if cfg.ProviderConfigEncryptionKey != "env-provider-config-encryption-key" {
+		t.Fatalf("ProviderConfigEncryptionKey = %q, want %q", cfg.ProviderConfigEncryptionKey, "env-provider-config-encryption-key")
+	}
 	if cfg.ConfigFilePath != configPath {
 		t.Fatalf("ConfigFilePath = %q, want %q", cfg.ConfigFilePath, configPath)
 	}
 }
 
-func TestLoadUsesDefaultsWhenConfigIsNotProvided(t *testing.T) {
+func TestLoadRequiresExplicitAppEnvAndInternalEventToken(t *testing.T) {
 	t.Setenv("CONFIG_PATH", "")
 	t.Setenv("APP_CONFIG_PATH", "")
+	t.Setenv("APP_ENV", "")
+	t.Setenv("INTERNAL_EVENT_INGEST_TOKEN", "")
 
-	cfg, err := Load("")
-	if err != nil {
-		t.Fatalf("Load() error = %v", err)
+	_, err := Load("")
+	if err == nil {
+		t.Fatal("Load() error = nil, want error")
 	}
-
-	if cfg.ServiceName != "honeygen-api" {
-		t.Fatalf("ServiceName = %q, want %q", cfg.ServiceName, "honeygen-api")
-	}
-	if cfg.ServiceVersion != "dev" {
-		t.Fatalf("ServiceVersion = %q, want %q", cfg.ServiceVersion, "dev")
-	}
-	if cfg.HTTPAddr != ":8080" {
-		t.Fatalf("HTTPAddr = %q, want %q", cfg.HTTPAddr, ":8080")
-	}
-	if cfg.Provider.Mode() != "unconfigured" {
-		t.Fatalf("Provider.Mode() = %q, want %q", cfg.Provider.Mode(), "unconfigured")
-	}
-	if cfg.InternalAPIBaseURL != "http://api:8080" {
-		t.Fatalf("InternalAPIBaseURL = %q, want %q", cfg.InternalAPIBaseURL, "http://api:8080")
-	}
-	if cfg.InternalEventIngestToken != "" {
-		t.Fatalf("InternalEventIngestToken = %q, want empty string", cfg.InternalEventIngestToken)
+	if got := err.Error(); got != "APP_ENV must be set; INTERNAL_EVENT_INGEST_TOKEN must be set" {
+		t.Fatalf("Load() error = %q, want %q", got, "APP_ENV must be set; INTERNAL_EVENT_INGEST_TOKEN must be set")
 	}
 }

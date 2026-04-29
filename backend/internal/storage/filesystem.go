@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -62,6 +63,20 @@ func (f *Filesystem) Read(_ context.Context, relativePath string) ([]byte, error
 		return nil, fmt.Errorf("read file %q: %w", relativePath, err)
 	}
 	return data, nil
+}
+
+func (f *Filesystem) Delete(_ context.Context, relativePath string) error {
+	normalized, fullPath, err := f.resolve(relativePath)
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(fullPath); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("delete file %q: %w", normalized, err)
+	}
+	return nil
 }
 
 func (f *Filesystem) resolve(relativePath string) (string, string, error) {

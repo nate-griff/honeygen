@@ -44,6 +44,8 @@ func TestLoadConfigUsesDecoyDefaultHTTPAddr(t *testing.T) {
 	t.Setenv("HTTP_ADDR", "")
 	t.Setenv("CONFIG_PATH", "")
 	t.Setenv("APP_CONFIG_PATH", "")
+	t.Setenv("APP_ENV", "test")
+	t.Setenv("INTERNAL_EVENT_INGEST_TOKEN", "test-internal-event-token")
 
 	cfg, err := loadConfig("")
 	if err != nil {
@@ -59,6 +61,8 @@ func TestLoadConfigPreservesExplicitHTTPAddrOverride(t *testing.T) {
 	t.Setenv("HTTP_ADDR", ":8080")
 	t.Setenv("CONFIG_PATH", "")
 	t.Setenv("APP_CONFIG_PATH", "")
+	t.Setenv("APP_ENV", "test")
+	t.Setenv("INTERNAL_EVENT_INGEST_TOKEN", "test-internal-event-token")
 
 	cfg, err := loadConfig("")
 	if err != nil {
@@ -74,6 +78,8 @@ func TestLoadConfigPreservesConfigFileHTTPAddr(t *testing.T) {
 	t.Setenv("HTTP_ADDR", "")
 	t.Setenv("CONFIG_PATH", "")
 	t.Setenv("APP_CONFIG_PATH", "")
+	t.Setenv("APP_ENV", "test")
+	t.Setenv("INTERNAL_EVENT_INGEST_TOKEN", "test-internal-event-token")
 
 	configPath := filepath.Join(t.TempDir(), "config.json")
 	if err := os.WriteFile(configPath, []byte(`{"http_addr":":8080"}`), 0o600); err != nil {

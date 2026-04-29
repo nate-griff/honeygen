@@ -17,13 +17,16 @@ import (
 
 func TestStatusEndpointReturnsServiceReadinessAndCounts(t *testing.T) {
 	cfg := config.Config{
-		ServiceName:        "honeygen-api",
-		ServiceVersion:     "test",
-		AppEnv:             "test",
-		HTTPAddr:           ":0",
-		SQLitePath:         filepath.Join(t.TempDir(), "status.db"),
-		GeneratedAssetsDir: filepath.Join(t.TempDir(), "generated"),
-		StorageRoot:        filepath.Join(t.TempDir(), "storage"),
+		ServiceName:                 "honeygen-api",
+		ServiceVersion:              "test",
+		AppEnv:                      "test",
+		HTTPAddr:                    ":0",
+		AdminPassword:               "test-admin-password",
+		ProviderConfigEncryptionKey: "test-provider-config-encryption-key",
+		SQLitePath:                  filepath.Join(t.TempDir(), "status.db"),
+		GeneratedAssetsDir:          filepath.Join(t.TempDir(), "generated"),
+		StorageRoot:                 filepath.Join(t.TempDir(), "storage"),
+		InternalEventIngestToken:    "test-internal-event-token",
 		Provider: config.ProviderConfig{
 			BaseURL: "https://provider.example/v1",
 			APIKey:  "test-key",
@@ -54,10 +57,11 @@ func TestStatusEndpointReturnsServiceReadinessAndCounts(t *testing.T) {
 		t.Fatalf("seed data error = %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/status", nil)
+	router := NewRouter(application)
+	req := authenticatedRequest(t, router, http.MethodGet, "/api/status", nil)
 	rec := httptest.NewRecorder()
 
-	NewRouter(application).ServeHTTP(rec, req)
+	router.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status code = %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
@@ -71,12 +75,10 @@ func TestStatusEndpointReturnsServiceReadinessAndCounts(t *testing.T) {
 		Database struct {
 			Ready bool `json:"ready"`
 		} `json:"database"`
-		Storage struct {
-			Root string `json:"root"`
-		} `json:"storage"`
 		Provider struct {
 			Mode  string `json:"mode"`
 			Ready bool   `json:"ready"`
+			Model string `json:"model"`
 		} `json:"provider"`
 		Counts struct {
 			Assets       int `json:"assets"`
@@ -104,11 +106,11 @@ func TestStatusEndpointReturnsServiceReadinessAndCounts(t *testing.T) {
 	if response.Database.Ready != true {
 		t.Fatalf("database.ready = %v, want true", response.Database.Ready)
 	}
-	if response.Storage.Root != cfg.StorageRoot {
-		t.Fatalf("storage.root = %q, want %q", response.Storage.Root, cfg.StorageRoot)
-	}
 	if response.Provider.Mode != "external" || response.Provider.Ready != true {
 		t.Fatalf("provider = %+v, want external ready", response.Provider)
+	}
+	if response.Provider.Model != "gpt-4.1-mini" {
+		t.Fatalf("provider.model = %q, want %q", response.Provider.Model, "gpt-4.1-mini")
 	}
 	if response.Counts.Assets != 2 {
 		t.Fatalf("counts.assets = %d, want %d", response.Counts.Assets, 2)
@@ -124,5 +126,21 @@ func TestStatusEndpointReturnsServiceReadinessAndCounts(t *testing.T) {
 	}
 	if response.LatestJob.ID != "job-1" || response.LatestJob.Status != "completed" || response.LatestJob.AssetCount != 2 {
 		t.Fatalf("latest_job = %+v, want id=job-1 status=completed asset_count=2", response.LatestJob)
+	}
+
+	var raw map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("json.Unmarshal(raw) error = %v", err)
+	}
+	if _, ok := raw["storage"]; ok {
+		t.Fatalf("status response unexpectedly included storage block: %s", rec.Body.String())
+	}
+	database := raw["database"].(map[string]any)
+	if _, ok := database["path"]; ok {
+		t.Fatalf("status response unexpectedly included database.path: %s", rec.Body.String())
+	}
+	provider := raw["provider"].(map[string]any)
+	if _, ok := provider["base_url"]; ok {
+		t.Fatalf("status response unexpectedly included provider.base_url: %s", rec.Body.String())
 	}
 }

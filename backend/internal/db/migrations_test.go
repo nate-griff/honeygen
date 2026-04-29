@@ -63,6 +63,7 @@ func TestMigrateCreatesSpecColumns(t *testing.T) {
 	assertColumnExists(t, db, "events", "bytes_sent")
 	assertColumnExists(t, db, "events", "timestamp")
 	assertIndexExists(t, db, "idx_events_source_ip")
+	assertIndexExists(t, db, "idx_deployments_port_unique")
 }
 
 func TestMigrateUpgradesExistingMVPSchema(t *testing.T) {
@@ -135,6 +136,7 @@ CREATE TABLE settings (
 	assertColumnExists(t, db, "events", "event_type")
 	assertColumnExists(t, db, "events", "path")
 	assertIndexExists(t, db, "idx_events_source_ip")
+	assertIndexExists(t, db, "idx_deployments_port_unique")
 
 	var timestamp string
 	if err := db.QueryRowContext(context.Background(), `SELECT timestamp FROM events WHERE id = 'event-1'`).Scan(&timestamp); err != nil {

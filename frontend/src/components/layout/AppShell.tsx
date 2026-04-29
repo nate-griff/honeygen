@@ -1,4 +1,7 @@
-import { NavLink, Outlet, useNavigation } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { NavLink, Outlet, useLocation, useNavigate, useNavigation } from "react-router-dom";
+import { logoutAdminSession } from "../../api/auth";
+import { unauthorizedEventName } from "../../api/client";
 
 const navItems = [
   { to: "/", label: "Dashboard", end: true },
@@ -11,8 +14,31 @@ const navItems = [
 ];
 
 export function AppShell() {
+  const location = useLocation();
+  const navigate = useNavigate();
   const navigation = useNavigation();
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const isNavigating = navigation.state !== "idle";
+
+  useEffect(() => {
+    const handleUnauthorized = () => {
+      const next = `${location.pathname}${location.search}`;
+      void navigate(`/login?next=${encodeURIComponent(next)}`, { replace: true });
+    };
+
+    window.addEventListener(unauthorizedEventName, handleUnauthorized);
+    return () => window.removeEventListener(unauthorizedEventName, handleUnauthorized);
+  }, [location.pathname, location.search, navigate]);
+
+  async function handleLogout() {
+    setIsLoggingOut(true);
+    try {
+      await logoutAdminSession();
+    } finally {
+      setIsLoggingOut(false);
+      await navigate("/login", { replace: true });
+    }
+  }
 
   return (
     <div className="app-shell">
@@ -38,10 +64,15 @@ export function AppShell() {
       <div className="app-main">
         <header className="app-toolbar">
           <div>
-            <strong>Live API mode</strong>
-            <span className="app-toolbar__subtitle"> Route loaders fetch backend data directly.</span>
+            <strong>Authenticated admin session</strong>
+            <span className="app-toolbar__subtitle"> Protected API loaders use the server-managed session cookie.</span>
           </div>
-          {isNavigating ? <span className="loading-chip">Refreshing…</span> : null}
+          <div className="app-toolbar__actions">
+            {isNavigating ? <span className="loading-chip">Refreshing…</span> : null}
+            <button className="button button--ghost button--small" disabled={isLoggingOut} onClick={handleLogout}>
+              {isLoggingOut ? "Signing out…" : "Sign out"}
+            </button>
+          </div>
         </header>
         <main className="app-content">
           <Outlet />

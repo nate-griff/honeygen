@@ -6,9 +6,11 @@ import type { GenerationJob } from "../../types/generation";
 
 interface GenerationJobsListProps {
   jobs: GenerationJob[];
+  cancelingJobIDs?: string[];
+  onCancel?: (jobID: string) => void;
 }
 
-export function GenerationJobsList({ jobs }: GenerationJobsListProps) {
+export function GenerationJobsList({ jobs, cancelingJobIDs = [], onCancel }: GenerationJobsListProps) {
   if (jobs.length === 0) {
     return <EmptyState title="No generation jobs" message="Trigger a run to populate live job history." />;
   }
@@ -58,6 +60,16 @@ export function GenerationJobsList({ jobs }: GenerationJobsListProps) {
             </details>
           ) : null}
           <div className="button-row">
+            {onCancel && (job.status === "pending" || job.status === "running") ? (
+              <button
+                className="button button--small button--danger"
+                disabled={cancelingJobIDs.includes(job.id)}
+                onClick={() => onCancel(job.id)}
+                type="button"
+              >
+                {cancelingJobIDs.includes(job.id) ? "Canceling…" : "Cancel job"}
+              </button>
+            ) : null}
             <Link className="button button--ghost" to={`/files?world_model_id=${job.world_model_id}&generation_job_id=${job.id}`}>
               Browse assets
             </Link>

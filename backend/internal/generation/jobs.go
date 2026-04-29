@@ -15,12 +15,14 @@ import (
 )
 
 var ErrJobNotFound = errors.New("generation job not found")
+var ErrJobNotCancelable = errors.New("generation job is not running")
 
 const (
 	StatusPending   = "pending"
 	StatusRunning   = "running"
 	StatusCompleted = "completed"
 	StatusFailed    = "failed"
+	StatusCanceled  = "canceled"
 )
 
 type LogEntry struct {
@@ -147,14 +149,22 @@ func (s *JobStore) UpdateSummary(ctx context.Context, id string, summary Summary
 }
 
 func (s *JobStore) SetCompleted(ctx context.Context, id string, summary Summary) (Job, error) {
-	return s.update(ctx, id, StatusCompleted, summary, "", false, true)
+	return s.updateIfStatusIn(ctx, id, StatusCompleted, summary, "", false, true, []string{StatusPending, StatusRunning})
 }
 
 func (s *JobStore) SetFailed(ctx context.Context, id string, summary Summary, message string) (Job, error) {
-	return s.update(ctx, id, StatusFailed, summary, message, false, true)
+	return s.updateIfStatusIn(ctx, id, StatusFailed, summary, message, false, true, []string{StatusPending, StatusRunning})
+}
+
+func (s *JobStore) SetCanceled(ctx context.Context, id string, summary Summary, message string) (Job, error) {
+	return s.updateIfStatusIn(ctx, id, StatusCanceled, summary, message, false, true, []string{StatusPending, StatusRunning})
 }
 
 func (s *JobStore) update(ctx context.Context, id, status string, summary Summary, errorMessage string, ensureStarted bool, complete bool) (Job, error) {
+	return s.updateIfStatusIn(ctx, id, status, summary, errorMessage, ensureStarted, complete, nil)
+}
+
+func (s *JobStore) updateIfStatusIn(ctx context.Context, id, status string, summary Summary, errorMessage string, ensureStarted bool, complete bool, currentStatuses []string) (Job, error) {
 	summary.Logs = append([]LogEntry(nil), summary.Logs...)
 	summaryJSON, err := json.Marshal(summary)
 	if err != nil {
@@ -170,11 +180,20 @@ func (s *JobStore) update(ctx context.Context, id, status string, summary Summar
 		completedAtClause = ", completed_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')"
 	}
 
-	result, err := s.db.ExecContext(ctx, `
+	query := `
 		UPDATE generation_jobs
-		SET status = ?, summary_json = ?, error_message = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')`+startedAtClause+completedAtClause+`
+		SET status = ?, summary_json = ?, error_message = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')` + startedAtClause + completedAtClause + `
 		WHERE id = ?
-	`, status, string(summaryJSON), errorMessage, id)
+	`
+	args := []any{status, string(summaryJSON), errorMessage, id}
+	if len(currentStatuses) > 0 {
+		query += ` AND status IN (` + placeholders(len(currentStatuses)) + `)`
+		for _, currentStatus := range currentStatuses {
+			args = append(args, currentStatus)
+		}
+	}
+
+	result, err := s.db.ExecContext(ctx, query, args...)
 	if err != nil {
 		return Job{}, fmt.Errorf("update generation job %q: %w", id, err)
 	}
@@ -184,10 +203,38 @@ func (s *JobStore) update(ctx context.Context, id, status string, summary Summar
 		return Job{}, fmt.Errorf("inspect generation job update %q: %w", id, err)
 	}
 	if rowsAffected == 0 {
-		return Job{}, ErrJobNotFound
+		current, getErr := s.Get(ctx, id)
+		if getErr != nil {
+			return Job{}, getErr
+		}
+		if len(currentStatuses) > 0 && !containsString(currentStatuses, current.Status) {
+			return current, ErrJobNotCancelable
+		}
+		return current, nil
 	}
 
 	return s.Get(ctx, id)
+}
+
+func CanCancel(status string) bool {
+	return status == StatusPending || status == StatusRunning
+}
+
+func placeholders(count int) string {
+	items := make([]string, 0, count)
+	for i := 0; i < count; i++ {
+		items = append(items, "?")
+	}
+	return strings.Join(items, ", ")
+}
+
+func containsString(items []string, want string) bool {
+	for _, item := range items {
+		if item == want {
+			return true
+		}
+	}
+	return false
 }
 
 type jobScanner interface {

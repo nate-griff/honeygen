@@ -349,6 +349,142 @@ CREATE TABLE events (
 	}
 }
 
+func TestMigrateDeduplicatesAssetPathsBeforeCreatingUniqueIndex(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	defer db.Close()
+
+	existingSchema := `
+CREATE TABLE schema_migrations (
+	version TEXT PRIMARY KEY,
+	applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE world_models (
+	id TEXT PRIMARY KEY,
+	name TEXT NOT NULL,
+	description TEXT NOT NULL DEFAULT '',
+	json_blob TEXT NOT NULL DEFAULT '{}',
+	created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE generation_jobs (
+	id TEXT PRIMARY KEY,
+	world_model_id TEXT NOT NULL,
+	status TEXT NOT NULL,
+	provider_job_id TEXT NOT NULL DEFAULT '',
+	started_at TEXT,
+	summary_json TEXT NOT NULL DEFAULT '{}',
+	error_message TEXT NOT NULL DEFAULT '',
+	created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	completed_at TEXT
+);
+CREATE TABLE assets (
+	id TEXT PRIMARY KEY,
+	generation_job_id TEXT NOT NULL,
+	world_model_id TEXT NOT NULL,
+	source_type TEXT NOT NULL,
+	rendered_type TEXT NOT NULL,
+	path TEXT NOT NULL,
+	mime_type TEXT NOT NULL DEFAULT '',
+	size_bytes INTEGER NOT NULL DEFAULT 0,
+	tags_json TEXT NOT NULL DEFAULT '[]',
+	previewable INTEGER NOT NULL DEFAULT 0,
+	checksum TEXT NOT NULL DEFAULT '',
+	created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE events (
+	id TEXT PRIMARY KEY,
+	asset_id TEXT,
+	world_model_id TEXT,
+	event_type TEXT NOT NULL,
+	method TEXT NOT NULL DEFAULT '',
+	query TEXT NOT NULL DEFAULT '',
+	path TEXT NOT NULL DEFAULT '',
+	source_ip TEXT NOT NULL DEFAULT '',
+	user_agent TEXT NOT NULL DEFAULT '',
+	referer TEXT NOT NULL DEFAULT '',
+	status_code INTEGER NOT NULL DEFAULT 0,
+	bytes_sent INTEGER NOT NULL DEFAULT 0,
+	timestamp TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	level TEXT NOT NULL DEFAULT 'info',
+	metadata_json TEXT NOT NULL DEFAULT '{}',
+	created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE settings (
+	key TEXT PRIMARY KEY,
+	value_json TEXT NOT NULL,
+	updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE deployments (
+	id TEXT PRIMARY KEY,
+	generation_job_id TEXT NOT NULL,
+	world_model_id TEXT NOT NULL,
+	protocol TEXT NOT NULL DEFAULT 'http',
+	port INTEGER NOT NULL,
+	root_path TEXT NOT NULL DEFAULT '/',
+	status TEXT NOT NULL DEFAULT 'stopped',
+	created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE ip_intel_cache (
+	ip TEXT PRIMARY KEY,
+	status TEXT NOT NULL DEFAULT 'pending',
+	payload_json TEXT NOT NULL DEFAULT '{}',
+	enriched_at TEXT,
+	created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);`
+	if _, err := db.ExecContext(context.Background(), existingSchema); err != nil {
+		t.Fatalf("create existing schema error = %v", err)
+	}
+
+	if _, err := db.ExecContext(context.Background(), `
+		INSERT INTO world_models (id, name, description, json_blob) VALUES ('world-1', 'World 1', '', '{}');
+		INSERT INTO generation_jobs (id, world_model_id, status, created_at, updated_at) VALUES ('job-1', 'world-1', 'completed', '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z');
+		INSERT INTO assets (id, generation_job_id, world_model_id, source_type, rendered_type, path, mime_type, size_bytes, tags_json, previewable, checksum, created_at)
+		VALUES
+			('asset-old', 'job-1', 'world-1', 'upload', 'text', 'generated/world-1/job-1/public/report.txt', 'text/plain', 10, '[]', 1, 'sum-old', '2024-01-01T00:00:00Z'),
+			('asset-new', 'job-1', 'world-1', 'upload', 'text', 'generated/world-1/job-1/public/report.txt', 'text/plain', 12, '[]', 1, 'sum-new', '2024-01-02T00:00:00Z');
+		INSERT INTO events (id, asset_id, world_model_id, event_type, path, timestamp, level, metadata_json, created_at)
+		VALUES ('event-1', 'asset-old', 'world-1', 'asset.viewed', '/generated/world-1/job-1/public/report.txt', '2024-01-03T00:00:00Z', 'info', '{}', '2024-01-03T00:00:00Z');
+	`); err != nil {
+		t.Fatalf("seed duplicate assets error = %v", err)
+	}
+
+	if err := Migrate(context.Background(), db); err != nil {
+		t.Fatalf("Migrate() error = %v", err)
+	}
+
+	var assetCount int
+	if err := db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM assets WHERE path = 'generated/world-1/job-1/public/report.txt'`).Scan(&assetCount); err != nil {
+		t.Fatalf("count deduplicated assets error = %v", err)
+	}
+	if assetCount != 1 {
+		t.Fatalf("asset count = %d, want 1 canonical asset row", assetCount)
+	}
+
+	var keptAssetID string
+	if err := db.QueryRowContext(context.Background(), `SELECT id FROM assets WHERE path = 'generated/world-1/job-1/public/report.txt'`).Scan(&keptAssetID); err != nil {
+		t.Fatalf("query canonical asset id error = %v", err)
+	}
+	if keptAssetID != "asset-new" {
+		t.Fatalf("kept asset id = %q, want %q", keptAssetID, "asset-new")
+	}
+
+	var eventAssetID string
+	if err := db.QueryRowContext(context.Background(), `SELECT asset_id FROM events WHERE id = 'event-1'`).Scan(&eventAssetID); err != nil {
+		t.Fatalf("query event asset id error = %v", err)
+	}
+	if eventAssetID != "asset-new" {
+		t.Fatalf("event asset_id = %q, want %q", eventAssetID, "asset-new")
+	}
+
+	assertIndexExists(t, db, "idx_assets_path_unique")
+}
+
 func TestMigrateCreatesIPIntelCacheTable(t *testing.T) {
 	db, err := sql.Open("sqlite", ":memory:")
 	if err != nil {

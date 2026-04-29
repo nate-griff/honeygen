@@ -191,6 +191,9 @@ func Migrate(ctx context.Context, database *sql.DB) error {
 	if err := migrateLegacyEventsTable(ctx, tx); err != nil {
 		return err
 	}
+	if err := deduplicateAssetPaths(ctx, tx); err != nil {
+		return err
+	}
 
 	for _, statement := range schemaIndexes {
 		if _, err := tx.ExecContext(ctx, statement); err != nil {
@@ -359,6 +362,64 @@ FROM assets
 	}
 	if _, err := tx.ExecContext(ctx, `ALTER TABLE assets_rebuilt RENAME TO assets`); err != nil {
 		return fmt.Errorf("rename rebuilt assets table: %w", err)
+	}
+
+	return nil
+}
+
+func deduplicateAssetPaths(ctx context.Context, tx *sql.Tx) error {
+	rows, err := tx.QueryContext(ctx, `
+SELECT id, path
+FROM assets
+WHERE path IN (
+	SELECT path
+	FROM assets
+	GROUP BY path
+	HAVING COUNT(*) > 1
+)
+ORDER BY path ASC, datetime(created_at) DESC, id DESC
+`)
+	if err != nil {
+		return fmt.Errorf("query duplicate asset paths: %w", err)
+	}
+	defer rows.Close()
+
+	type duplicateGroup struct {
+		canonicalID  string
+		duplicateIDs []string
+	}
+
+	groups := map[string]*duplicateGroup{}
+	order := make([]string, 0)
+	for rows.Next() {
+		var id string
+		var path string
+		if err := rows.Scan(&id, &path); err != nil {
+			return fmt.Errorf("scan duplicate asset path row: %w", err)
+		}
+
+		group, exists := groups[path]
+		if !exists {
+			groups[path] = &duplicateGroup{canonicalID: id}
+			order = append(order, path)
+			continue
+		}
+		group.duplicateIDs = append(group.duplicateIDs, id)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate duplicate asset paths: %w", err)
+	}
+
+	for _, path := range order {
+		group := groups[path]
+		for _, duplicateID := range group.duplicateIDs {
+			if _, err := tx.ExecContext(ctx, `UPDATE events SET asset_id = ? WHERE asset_id = ?`, group.canonicalID, duplicateID); err != nil {
+				return fmt.Errorf("repoint events from duplicate asset %q to %q for path %q: %w", duplicateID, group.canonicalID, path, err)
+			}
+			if _, err := tx.ExecContext(ctx, `DELETE FROM assets WHERE id = ?`, duplicateID); err != nil {
+				return fmt.Errorf("delete duplicate asset %q for path %q: %w", duplicateID, path, err)
+			}
+		}
 	}
 
 	return nil

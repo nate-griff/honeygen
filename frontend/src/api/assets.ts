@@ -30,3 +30,7 @@ export function uploadAsset(params: UploadAssetParams): Promise<Asset> {
   form.append("file", params.file);
   return apiRequest<Asset>("/api/assets/upload", { method: "POST", body: form });
 }
+
+export async function deleteAsset(id: string): Promise<void> {
+  await apiRequest<void>(`/api/assets/${id}`, { method: "DELETE" });
+}

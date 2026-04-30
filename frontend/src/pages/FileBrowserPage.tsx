@@ -1,11 +1,12 @@
-import { useRef, useState } from "react";
-import { useLoaderData, useNavigate } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import { useLoaderData, useNavigate, useRevalidator } from "react-router-dom";
 import { getAsset, getAssetContent, listAssetTree, uploadAsset } from "../api/assets";
 import { listGenerationJobs } from "../api/generation";
 import { listWorldModels } from "../api/worldModels";
 import { PageHeader } from "../components/layout/PageHeader";
 import { Panel } from "../components/layout/Panel";
 import { AssetMetadataCard } from "../components/assets/AssetMetadataCard";
+import { deleteAsset } from "../api/assets";
 import { AssetPreview } from "../components/assets/AssetPreview";
 import { AssetTree } from "../components/assets/AssetTree";
 import { EmptyState } from "../components/layout/EmptyState";
@@ -14,6 +15,8 @@ import type { Asset, AssetContentResponse, AssetTreeNode } from "../types/assets
 import type { GenerationJob } from "../types/generation";
 import type { WorldModelSummary } from "../types/worldModels";
 import { getUploadErrorMessage } from "./fileBrowserUploadErrors";
+import { getDeleteSuccessAction } from "./fileBrowserDeleteSuccess";
+import { APIClientError } from "../api/client";
 
 interface FileBrowserLoaderData {
   models: WorldModelSummary[];
@@ -77,6 +80,7 @@ export default function FileBrowserPage() {
     assetContent,
   } = useLoaderData() as FileBrowserLoaderData;
   const navigate = useNavigate();
+  const revalidator = useRevalidator();
 
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadTargetPath, setUploadTargetPath] = useState("");
@@ -86,6 +90,7 @@ export default function FileBrowserPage() {
 
   const selectedJob = jobs.find((j) => j.id === selectedGenerationJobID) ?? null;
   const canUpload = selectedJob?.status === "completed";
+  const canDeleteAsset = selectedJob?.status === "completed" && !!asset;
 
   function updateQuery(next: {
     world_model_id?: string;
@@ -134,6 +139,84 @@ export default function FileBrowserPage() {
     } catch (error) {
       setUploadError(getUploadErrorMessage(error));
       setUploadLoading(false);
+    }
+  }
+
+  const [deleteLoadingAssetID, setDeleteLoadingAssetID] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const deleteRequestRef = useRef(0);
+  const currentSelectionRef = useRef({
+    worldModelID: selectedWorldModelID,
+    generationJobID: selectedGenerationJobID,
+    assetID: selectedAssetID,
+  });
+  const deleteLoading = !!asset && deleteLoadingAssetID === asset.id;
+
+  useEffect(() => {
+    currentSelectionRef.current = {
+      worldModelID: selectedWorldModelID,
+      generationJobID: selectedGenerationJobID,
+      assetID: selectedAssetID,
+    };
+    setDeleteError(null);
+  }, [selectedWorldModelID, selectedGenerationJobID, selectedAssetID]);
+
+  async function handleDeleteAsset() {
+    if (!asset) return;
+    if (!window.confirm("Are you sure you want to delete this asset? This action cannot be undone.")) return;
+    const deletingAssetID = asset.id;
+    const deletingWorldModelID = selectedWorldModelID;
+    const deletingGenerationJobID = selectedGenerationJobID;
+    const deleteRequestToken = deleteRequestRef.current + 1;
+    deleteRequestRef.current = deleteRequestToken;
+    setDeleteLoadingAssetID(deletingAssetID);
+    setDeleteError(null);
+    try {
+      await deleteAsset(deletingAssetID);
+      if (deleteRequestRef.current === deleteRequestToken) {
+        setDeleteLoadingAssetID(null);
+      }
+      const currentSelection = currentSelectionRef.current;
+      if (
+        getDeleteSuccessAction({
+          currentSelection,
+          deletingSelection: {
+            worldModelID: deletingWorldModelID,
+            generationJobID: deletingGenerationJobID,
+            assetID: deletingAssetID,
+          },
+        }) === "clear-selection"
+      ) {
+        updateQuery({
+          world_model_id: deletingWorldModelID,
+          generation_job_id: deletingGenerationJobID,
+          asset_id: undefined,
+        });
+      } else {
+        revalidator.revalidate();
+      }
+    } catch (error) {
+      let msg = "Failed to delete asset.";
+      if (error instanceof APIClientError) {
+        msg = error.message;
+        if (error.code === "asset_not_deletable") {
+          msg = "This asset cannot be deleted.";
+        }
+      } else if (error instanceof Error) {
+        msg = error.message;
+      }
+      if (deleteRequestRef.current === deleteRequestToken) {
+        setDeleteLoadingAssetID(null);
+      }
+      const currentSelection = currentSelectionRef.current;
+      if (
+        deleteRequestRef.current === deleteRequestToken &&
+        currentSelection.worldModelID === deletingWorldModelID &&
+        currentSelection.generationJobID === deletingGenerationJobID &&
+        currentSelection.assetID === deletingAssetID
+      ) {
+        setDeleteError(msg);
+      }
     }
   }
 
@@ -269,7 +352,19 @@ export default function FileBrowserPage() {
         </Panel>
         <div className="stack">
           <Panel title="Asset metadata" subtitle="Selected asset details from /api/assets/{id}">
-            {asset ? <AssetMetadataCard asset={asset} /> : <EmptyState title="Pick an asset" message="Choose a file from the tree to inspect metadata." />}
+            {asset ? (
+                <>
+                  <AssetMetadataCard
+                    asset={asset}
+                    onDelete={canDeleteAsset ? handleDeleteAsset : undefined}
+                    deleteLoading={deleteLoading}
+                    canDelete={canDeleteAsset}
+                  />
+                  {deleteError && <ErrorAlert message={deleteError} />}
+                </>
+              ) : (
+                <EmptyState title="Pick an asset" message="Choose a file from the tree to inspect metadata." />
+              )}
           </Panel>
           <Panel title="Preview" subtitle="Sanitized rendering for markdown and HTML, text for plain formats">
             <AssetPreview asset={asset} content={assetContent} />

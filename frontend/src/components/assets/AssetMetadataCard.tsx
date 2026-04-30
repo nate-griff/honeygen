@@ -3,9 +3,12 @@ import type { Asset } from "../../types/assets";
 
 interface AssetMetadataCardProps {
   asset: Asset;
+  onDelete?: (() => void) | null;
+  deleteLoading?: boolean;
+  canDelete?: boolean;
 }
 
-export function AssetMetadataCard({ asset }: AssetMetadataCardProps) {
+export function AssetMetadataCard({ asset, onDelete, deleteLoading, canDelete }: AssetMetadataCardProps) {
   return (
     <div className="stack stack--compact">
       <dl className="detail-grid">
@@ -50,6 +53,17 @@ export function AssetMetadataCard({ asset }: AssetMetadataCardProps) {
         <a className="button button--ghost" download href={normalizeDownloadPath(asset.path)}>
           Download asset
         </a>
+        {canDelete && (
+          <button
+            className="button button--danger"
+            type="button"
+            onClick={onDelete ?? undefined}
+            disabled={deleteLoading}
+            style={{ marginLeft: 8 }}
+          >
+            {deleteLoading ? "Deleting…" : "Delete asset"}
+          </button>
+        )}
       </div>
     </div>
   );

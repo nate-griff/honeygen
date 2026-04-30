@@ -61,8 +61,10 @@ func assetsItemHandler(application *app.APIApp) http.HandlerFunc {
 				return
 			}
 			handleAssetGet(application, w, r)
+		case http.MethodDelete:
+			handleAssetDelete(application, w, r)
 		default:
-			w.Header().Set("Allow", http.MethodGet)
+			w.Header().Set("Allow", strings.Join([]string{http.MethodGet, http.MethodDelete}, ", "))
 			writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 		}
 	}
@@ -134,6 +136,33 @@ func handleAssetContent(application *app.APIApp, w http.ResponseWriter, r *http.
 		"previewable": true,
 		"content":     string(content),
 	})
+}
+
+func handleAssetDelete(application *app.APIApp, w http.ResponseWriter, r *http.Request) {
+	id, err := assetIDFromPath(r.URL.Path)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "not_found", "resource not found")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	if err := application.GenerationService().DeleteAsset(ctx, id); err != nil {
+		if errors.Is(err, assets.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "not_found", "asset not found")
+			return
+		}
+		if errors.Is(err, generation.ErrAssetNotDeletable) {
+			writeError(w, http.StatusConflict, "asset_not_deletable", "assets can only be deleted from completed generation jobs")
+			return
+		}
+		application.Logger.Error("delete asset", "error", err, "id", id)
+		writeError(w, http.StatusInternalServerError, "asset_delete_failed", "asset could not be deleted")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func assetSupportsInlinePreview(item assets.Asset) bool {

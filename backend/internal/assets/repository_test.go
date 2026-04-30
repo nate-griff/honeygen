@@ -194,6 +194,155 @@ func TestRepositoryDeleteByJobIDDeletesAllAssetsForLargeJob(t *testing.T) {
 	}
 }
 
+func TestRepositoryDeleteClearsEventReferencesBeforeDeletingAsset(t *testing.T) {
+	t.Parallel()
+
+	database := newAssetsTestDatabase(t)
+	repository := NewRepository(database)
+	ctx := context.Background()
+
+	if _, err := database.ExecContext(ctx, `
+		INSERT INTO world_models (id, name, description, json_blob, created_at, updated_at)
+		VALUES ('world-1', 'World 1', '', '{}', '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')
+	`); err != nil {
+		t.Fatalf("seed world model error = %v", err)
+	}
+	if _, err := database.ExecContext(ctx, `
+		INSERT INTO generation_jobs (id, world_model_id, status, created_at, updated_at)
+		VALUES ('job-1', 'world-1', 'completed', '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')
+	`); err != nil {
+		t.Fatalf("seed generation job error = %v", err)
+	}
+
+	created, err := repository.Create(ctx, Asset{
+		ID:              "asset-1",
+		GenerationJobID: "job-1",
+		WorldModelID:    "world-1",
+		SourceType:      "generated",
+		RenderedType:    "text",
+		Path:            "generated/world-1/job-1/public/file.txt",
+		MIMEType:        "text/plain",
+		SizeBytes:       5,
+		Previewable:     true,
+		Checksum:        "sum-1",
+	})
+	if err != nil {
+		t.Fatalf("Create() asset error = %v", err)
+	}
+	if _, err := database.ExecContext(ctx, `
+		INSERT INTO events (id, asset_id, world_model_id, event_type, path, source_ip, user_agent, metadata_json)
+		VALUES ('event-1', ?, 'world-1', 'asset.requested', '/generated/world-1/job-1/public/file.txt', '127.0.0.1', 'test-agent', '{}')
+	`, created.ID); err != nil {
+		t.Fatalf("seed event error = %v", err)
+	}
+
+	if err := repository.Delete(ctx, created.ID); err != nil {
+		t.Fatalf("Delete() error = %v", err)
+	}
+
+	if _, err := repository.Get(ctx, created.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Get() after Delete() error = %v, want %v", err, ErrNotFound)
+	}
+
+	var eventAssetID sql.NullString
+	if err := database.QueryRowContext(ctx, `SELECT asset_id FROM events WHERE id = 'event-1'`).Scan(&eventAssetID); err != nil {
+		t.Fatalf("query event asset_id error = %v", err)
+	}
+	if eventAssetID.Valid {
+		t.Fatalf("event asset_id valid = %t, want false (value=%q)", eventAssetID.Valid, eventAssetID.String)
+	}
+}
+
+func TestRepositoryDeleteByJobIDClearsEventReferencesBeforeDeletingAssets(t *testing.T) {
+	t.Parallel()
+
+	database := newAssetsTestDatabase(t)
+	repository := NewRepository(database)
+	ctx := context.Background()
+
+	if _, err := database.ExecContext(ctx, `
+		INSERT INTO world_models (id, name, description, json_blob, created_at, updated_at)
+		VALUES ('world-1', 'World 1', '', '{}', '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')
+	`); err != nil {
+		t.Fatalf("seed world model error = %v", err)
+	}
+	if _, err := database.ExecContext(ctx, `
+		INSERT INTO generation_jobs (id, world_model_id, status, created_at, updated_at)
+		VALUES
+			('job-1', 'world-1', 'completed', '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z'),
+			('job-2', 'world-1', 'completed', '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')
+	`); err != nil {
+		t.Fatalf("seed generation jobs error = %v", err)
+	}
+
+	for _, asset := range []Asset{
+		{
+			ID:              "asset-1",
+			GenerationJobID: "job-1",
+			WorldModelID:    "world-1",
+			SourceType:      "generated",
+			RenderedType:    "text",
+			Path:            "generated/world-1/job-1/public/file-1.txt",
+			MIMEType:        "text/plain",
+			SizeBytes:       5,
+			Previewable:     true,
+			Checksum:        "sum-1",
+		},
+		{
+			ID:              "asset-2",
+			GenerationJobID: "job-2",
+			WorldModelID:    "world-1",
+			SourceType:      "generated",
+			RenderedType:    "text",
+			Path:            "generated/world-1/job-2/public/file-2.txt",
+			MIMEType:        "text/plain",
+			SizeBytes:       5,
+			Previewable:     true,
+			Checksum:        "sum-2",
+		},
+	} {
+		if _, err := repository.Create(ctx, asset); err != nil {
+			t.Fatalf("Create(%q) error = %v", asset.ID, err)
+		}
+	}
+
+	if _, err := database.ExecContext(ctx, `
+		INSERT INTO events (id, asset_id, world_model_id, event_type, path, source_ip, user_agent, metadata_json)
+		VALUES
+			('event-1', 'asset-1', 'world-1', 'asset.requested', '/generated/world-1/job-1/public/file-1.txt', '127.0.0.1', 'test-agent', '{}'),
+			('event-2', 'asset-2', 'world-1', 'asset.requested', '/generated/world-1/job-2/public/file-2.txt', '127.0.0.1', 'test-agent', '{}')
+	`); err != nil {
+		t.Fatalf("seed events error = %v", err)
+	}
+
+	if err := repository.DeleteByJobID(ctx, "job-1"); err != nil {
+		t.Fatalf("DeleteByJobID() error = %v", err)
+	}
+
+	if _, err := repository.Get(ctx, "asset-1"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Get(asset-1) after DeleteByJobID() error = %v, want %v", err, ErrNotFound)
+	}
+	if _, err := repository.Get(ctx, "asset-2"); err != nil {
+		t.Fatalf("Get(asset-2) after DeleteByJobID() error = %v, want asset to remain", err)
+	}
+
+	var deletedEventAssetID sql.NullString
+	if err := database.QueryRowContext(ctx, `SELECT asset_id FROM events WHERE id = 'event-1'`).Scan(&deletedEventAssetID); err != nil {
+		t.Fatalf("query deleted event asset_id error = %v", err)
+	}
+	if deletedEventAssetID.Valid {
+		t.Fatalf("deleted event asset_id valid = %t, want false (value=%q)", deletedEventAssetID.Valid, deletedEventAssetID.String)
+	}
+
+	var remainingEventAssetID sql.NullString
+	if err := database.QueryRowContext(ctx, `SELECT asset_id FROM events WHERE id = 'event-2'`).Scan(&remainingEventAssetID); err != nil {
+		t.Fatalf("query remaining event asset_id error = %v", err)
+	}
+	if !remainingEventAssetID.Valid || remainingEventAssetID.String != "asset-2" {
+		t.Fatalf("remaining event asset_id = %+v, want asset-2", remainingEventAssetID)
+	}
+}
+
 func TestRepositoryCreateRejectsDuplicatePath(t *testing.T) {
 	t.Parallel()
 

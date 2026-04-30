@@ -79,6 +79,48 @@ func TestFilesystemDeleteFilesIsEmptyNoOp(t *testing.T) {
 	}
 }
 
+func TestFilesystemMoveRelocatesFile(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	fs := NewFilesystem(root)
+	ctx := context.Background()
+
+	const fromPath = "generated/world-1/job-1/public/file.txt"
+	const toPath = ".deletions/assets/asset-1"
+
+	if _, err := fs.Write(ctx, fromPath, []byte("content")); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+
+	if err := fs.Move(ctx, fromPath, toPath); err != nil {
+		t.Fatalf("Move() error = %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(fromPath))); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("source file still exists after Move(), stat error = %v", err)
+	}
+
+	data, err := fs.Read(ctx, toPath)
+	if err != nil {
+		t.Fatalf("Read(destination) error = %v", err)
+	}
+	if string(data) != "content" {
+		t.Fatalf("destination content = %q, want %q", string(data), "content")
+	}
+}
+
+func TestFilesystemMoveIsNoOpWhenSourceMissing(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	fs := NewFilesystem(root)
+
+	if err := fs.Move(context.Background(), "generated/world-1/job-1/public/missing.txt", ".deletions/assets/asset-1"); err != nil {
+		t.Fatalf("Move() missing source error = %v, want nil", err)
+	}
+}
+
 func TestFilesystemDeleteDirRemovesSubtree(t *testing.T) {
 	t.Parallel()
 

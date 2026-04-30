@@ -19,6 +19,10 @@ import (
 	"github.com/natet/honeygen/backend/internal/worldmodels"
 )
 
+var ErrAssetNotDeletable = errors.New("asset cannot be deleted: generation job is not completed")
+
+const assetDeleteRollbackTimeout = 5 * time.Second
+
 type RunRequest struct {
 	WorldModelID string `json:"world_model_id"`
 }
@@ -29,7 +33,10 @@ type worldModelReader interface {
 
 type assetRepository interface {
 	Create(context.Context, assets.Asset) (assets.Asset, error)
+	Get(context.Context, string) (assets.Asset, error)
+	FindByPath(context.Context, string) (assets.Asset, error)
 	List(context.Context, assets.ListOptions) ([]assets.Asset, error)
+	Delete(context.Context, string) error
 	DeleteByJobID(context.Context, string) error
 }
 
@@ -37,6 +44,7 @@ type fileStore interface {
 	Write(context.Context, string, []byte) (storage.StoredFile, error)
 	Read(context.Context, string) ([]byte, error)
 	Delete(context.Context, string) error
+	Move(context.Context, string, string) error
 	DeleteDir(context.Context, string) error
 }
 
@@ -190,6 +198,61 @@ func (s *Service) Delete(ctx context.Context, jobID string) error {
 
 	if err := s.jobs.Delete(ctx, jobID); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+func (s *Service) DeleteAsset(ctx context.Context, assetID string) error {
+	asset, err := s.assets.Get(ctx, assetID)
+	if err != nil {
+		return err
+	}
+
+	job, err := s.jobs.Get(ctx, asset.GenerationJobID)
+	if err != nil {
+		return err
+	}
+	if job.Status != StatusCompleted {
+		return ErrAssetNotDeletable
+	}
+
+	stagedPath, err := storage.JoinRelative(".deletions", "assets", asset.ID)
+	if err != nil {
+		return fmt.Errorf("build staged asset path for %q: %w", assetID, err)
+	}
+	if err := s.storage.Move(ctx, asset.Path, stagedPath); err != nil {
+		return fmt.Errorf("stage asset file %q: %w", assetID, err)
+	}
+	if err := s.assets.Delete(ctx, assetID); err != nil {
+		restoreCtx, restoreCancel := context.WithTimeout(s.finalizeContext(), assetDeleteRollbackTimeout)
+		defer restoreCancel()
+		if restoreErr := s.storage.Move(restoreCtx, stagedPath, asset.Path); restoreErr != nil {
+			return fmt.Errorf("delete asset record %q: %w (restore asset file: %v)", assetID, err, restoreErr)
+		}
+		return fmt.Errorf("delete asset record %q: %w", assetID, err)
+	}
+	deleteCtx, deleteCancel := context.WithTimeout(s.finalizeContext(), assetDeleteRollbackTimeout)
+	defer deleteCancel()
+	if err := s.storage.Delete(deleteCtx, stagedPath); err != nil {
+		restoreCtx, restoreCancel := context.WithTimeout(s.finalizeContext(), assetDeleteRollbackTimeout)
+		defer restoreCancel()
+		if _, findErr := s.assets.FindByPath(restoreCtx, asset.Path); findErr == nil {
+			return fmt.Errorf("delete asset file %q: %w", assetID, err)
+		} else if !errors.Is(findErr, assets.ErrNotFound) {
+			return fmt.Errorf("delete asset file %q: %w (check replacement asset: %v)", assetID, err, findErr)
+		}
+		if _, restoreErr := s.assets.Create(restoreCtx, asset); restoreErr != nil {
+			return fmt.Errorf("delete asset file %q: %w (restore asset record: %v)", assetID, err, restoreErr)
+		}
+		if restoreErr := s.storage.Move(restoreCtx, stagedPath, asset.Path); restoreErr != nil {
+			deleteErr := s.assets.Delete(restoreCtx, asset.ID)
+			if deleteErr != nil && !errors.Is(deleteErr, assets.ErrNotFound) {
+				return fmt.Errorf("delete asset file %q: %w (restore asset file: %v; rollback asset record: %v)", assetID, err, restoreErr, deleteErr)
+			}
+			return fmt.Errorf("delete asset file %q: %w (restore asset file: %v)", assetID, err, restoreErr)
+		}
+		return fmt.Errorf("delete asset file %q: %w", assetID, err)
 	}
 
 	return nil

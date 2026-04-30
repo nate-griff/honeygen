@@ -99,7 +99,17 @@ func (r *Repository) Get(ctx context.Context, id string) (Asset, error) {
 }
 
 func (r *Repository) Delete(ctx context.Context, id string) error {
-	result, err := r.db.ExecContext(ctx, `DELETE FROM assets WHERE id = ?`, id)
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin delete asset %q transaction: %w", id, err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+	if _, err := tx.ExecContext(ctx, `UPDATE events SET asset_id = NULL WHERE asset_id = ?`, id); err != nil {
+		return fmt.Errorf("clear asset references for %q: %w", id, err)
+	}
+	result, err := tx.ExecContext(ctx, `DELETE FROM assets WHERE id = ?`, id)
 	if err != nil {
 		return fmt.Errorf("delete asset %q: %w", id, err)
 	}
@@ -109,6 +119,9 @@ func (r *Repository) Delete(ctx context.Context, id string) error {
 	}
 	if rowsAffected == 0 {
 		return ErrNotFound
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit delete asset %q: %w", id, err)
 	}
 	return nil
 }
@@ -136,8 +149,29 @@ func (r *Repository) FindByPath(ctx context.Context, path string) (Asset, error)
 // DeleteByJobID removes all asset metadata records that belong to the given
 // generation job. If no assets exist for the job the call is a no-op.
 func (r *Repository) DeleteByJobID(ctx context.Context, jobID string) error {
-	if _, err := r.db.ExecContext(ctx, `DELETE FROM assets WHERE generation_job_id = ?`, jobID); err != nil {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin delete assets for job %q transaction: %w", jobID, err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE events
+		SET asset_id = NULL
+		WHERE asset_id IN (
+			SELECT id
+			FROM assets
+			WHERE generation_job_id = ?
+		)
+	`, jobID); err != nil {
+		return fmt.Errorf("clear asset references for job %q: %w", jobID, err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM assets WHERE generation_job_id = ?`, jobID); err != nil {
 		return fmt.Errorf("delete assets for job %q: %w", jobID, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit delete assets for job %q: %w", jobID, err)
 	}
 	return nil
 }

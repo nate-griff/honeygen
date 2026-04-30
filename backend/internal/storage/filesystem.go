@@ -79,6 +79,30 @@ func (f *Filesystem) Delete(_ context.Context, relativePath string) error {
 	return nil
 }
 
+func (f *Filesystem) Move(_ context.Context, fromPath, toPath string) error {
+	fromNormalized, fromFullPath, err := f.resolve(fromPath)
+	if err != nil {
+		return err
+	}
+	toNormalized, toFullPath, err := f.resolve(toPath)
+	if err != nil {
+		return err
+	}
+	if fromNormalized == toNormalized {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(toFullPath), 0o755); err != nil {
+		return fmt.Errorf("create directory for %q: %w", toNormalized, err)
+	}
+	if err := os.Rename(fromFullPath, toFullPath); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("move file %q to %q: %w", fromNormalized, toNormalized, err)
+	}
+	return nil
+}
+
 // DeleteFiles deletes each of the given relative paths. A missing file is not
 // an error (consistent with Delete). Any other OS-level failure is returned
 // immediately without attempting the remaining paths.

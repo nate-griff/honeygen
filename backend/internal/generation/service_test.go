@@ -881,6 +881,112 @@ func TestServiceDeleteAssetReturnsNotDeletableForNonCompletedJob(t *testing.T) {
 	}
 }
 
+func TestServiceDeleteAssetDoesNotDeleteReplacementFileForSamePath(t *testing.T) {
+	t.Parallel()
+
+	database := newGenerationTestDatabase(t)
+	repo := worldmodels.NewRepository(database)
+	if _, err := repo.Create(context.Background(), StoredWorldModelForTest("world-1")); err != nil {
+		t.Fatalf("Create() world model error = %v", err)
+	}
+
+	root := t.TempDir()
+	jobStore := NewJobStore(database)
+	job, err := jobStore.Create(context.Background(), "world-1")
+	if err != nil {
+		t.Fatalf("Create() generation job error = %v", err)
+	}
+	job, err = jobStore.SetCompleted(context.Background(), job.ID, Summary{})
+	if err != nil {
+		t.Fatalf("SetCompleted() error = %v", err)
+	}
+
+	assetRepo := assets.NewRepository(database)
+	fileStore := storage.NewFilesystem(root)
+	storedFile, err := fileStore.Write(context.Background(), "generated/world-1/"+job.ID+"/public/file.txt", []byte("original"))
+	if err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+	created, err := assetRepo.Create(context.Background(), assets.Asset{
+		ID:              "asset-1",
+		GenerationJobID: job.ID,
+		WorldModelID:    "world-1",
+		SourceType:      "generated",
+		RenderedType:    "text",
+		Path:            storedFile.Path,
+		MIMEType:        "text/plain",
+		SizeBytes:       storedFile.SizeBytes,
+		Previewable:     true,
+		Checksum:        storedFile.Checksum,
+	})
+	if err != nil {
+		t.Fatalf("Create() asset error = %v", err)
+	}
+
+	replacementStorage := replacementUploadDuringDeleteStorage{
+		Filesystem: fileStore,
+		assetRepo:  assetRepo,
+		replacement: assets.Asset{
+			ID:              "asset-replacement",
+			GenerationJobID: job.ID,
+			WorldModelID:    "world-1",
+			SourceType:      "upload",
+			RenderedType:    "text",
+			Path:            created.Path,
+			MIMEType:        "text/plain",
+			SizeBytes:       int64(len("replacement")),
+			Previewable:     true,
+			Checksum:        "replacement-sum",
+		},
+		replacementContent: []byte("replacement"),
+		originalPath:       created.Path,
+	}
+
+	service := NewService(ServiceConfig{
+		WorldModels: repo,
+		Planner:     NewPlanner(),
+		Provider:    generationStubProvider{},
+		Jobs:        jobStore,
+		Assets:      assetRepo,
+		Storage:     replacementStorage,
+		Renderers: rendering.NewRegistry(rendering.RegistryConfig{
+			PDF: rendering.StaticPDFRenderer([]byte("%PDF-1.4\n%stub\n")),
+		}),
+	})
+	t.Cleanup(func() { _ = service.Close() })
+
+	deleter, ok := any(service).(interface {
+		DeleteAsset(context.Context, string) error
+	})
+	if !ok {
+		t.Fatal("Service does not implement DeleteAsset")
+	}
+
+	if err := deleter.DeleteAsset(context.Background(), created.ID); err != nil {
+		t.Fatalf("DeleteAsset() error = %v", err)
+	}
+
+	if _, err := assetRepo.Get(context.Background(), created.ID); !errors.Is(err, assets.ErrNotFound) {
+		t.Fatalf("Get(original) after DeleteAsset() error = %v, want %v", err, assets.ErrNotFound)
+	}
+
+	replacement, err := assetRepo.Get(context.Background(), replacementStorage.replacement.ID)
+	if err != nil {
+		t.Fatalf("Get(replacement) after DeleteAsset() error = %v", err)
+	}
+	if replacement.Path != created.Path {
+		t.Fatalf("replacement path = %q, want %q", replacement.Path, created.Path)
+	}
+
+	content, err := fileStore.Read(context.Background(), created.Path)
+	if err != nil {
+		t.Fatalf("Read(replacement path) error = %v", err)
+	}
+	if string(content) != string(replacementStorage.replacementContent) {
+		t.Fatalf("replacement content = %q, want %q", string(content), string(replacementStorage.replacementContent))
+	}
+}
+
 func newGenerationTestDatabase(t *testing.T) *sql.DB {
 	t.Helper()
 
@@ -1028,6 +1134,10 @@ func (w *blockingAssetWriter) Get(ctx context.Context, id string) (assets.Asset,
 	return w.repo.Get(ctx, id)
 }
 
+func (w *blockingAssetWriter) FindByPath(ctx context.Context, path string) (assets.Asset, error) {
+	return w.repo.FindByPath(ctx, path)
+}
+
 func (w *blockingAssetWriter) Delete(ctx context.Context, id string) error {
 	return w.repo.Delete(ctx, id)
 }
@@ -1065,6 +1175,28 @@ func (s cancelingDeleteFileStore) Delete(context.Context, string) error {
 		s.cancel()
 	}
 	return s.err
+}
+
+type replacementUploadDuringDeleteStorage struct {
+	*storage.Filesystem
+	assetRepo           *assets.Repository
+	replacement         assets.Asset
+	replacementContent  []byte
+	originalPath        string
+	replacementUploaded bool
+}
+
+func (s replacementUploadDuringDeleteStorage) Delete(ctx context.Context, relativePath string) error {
+	if !s.replacementUploaded {
+		if _, err := s.assetRepo.Create(context.Background(), s.replacement); err != nil {
+			return err
+		}
+		if _, err := s.Filesystem.Write(context.Background(), s.originalPath, s.replacementContent); err != nil {
+			return err
+		}
+		s.replacementUploaded = true
+	}
+	return s.Filesystem.Delete(ctx, relativePath)
 }
 
 func waitForJobStatus(t *testing.T, store *JobStore, jobID, wantStatus string) Job {

@@ -253,6 +253,58 @@ func TestRepositoryDeleteClearsEventReferencesBeforeDeletingAsset(t *testing.T) 
 	}
 }
 
+func TestRepositoryDeleteFallsBackWhenLegacyEventsAssetIDIsNotNullable(t *testing.T) {
+	t.Parallel()
+
+	database, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	t.Cleanup(func() {
+		_ = database.Close()
+	})
+	ctx := context.Background()
+
+	if _, err := database.ExecContext(ctx, `
+		CREATE TABLE assets (
+			id TEXT PRIMARY KEY
+		);
+		CREATE TABLE events (
+			id TEXT PRIMARY KEY,
+			asset_id TEXT NOT NULL
+		);
+	`); err != nil {
+		t.Fatalf("create legacy tables error = %v", err)
+	}
+	if _, err := database.ExecContext(ctx, `INSERT INTO assets (id) VALUES ('asset-1')`); err != nil {
+		t.Fatalf("insert asset error = %v", err)
+	}
+	if _, err := database.ExecContext(ctx, `INSERT INTO events (id, asset_id) VALUES ('event-1', 'asset-1')`); err != nil {
+		t.Fatalf("insert event error = %v", err)
+	}
+
+	repository := NewRepository(database)
+	if err := repository.Delete(ctx, "asset-1"); err != nil {
+		t.Fatalf("Delete() error = %v", err)
+	}
+
+	var assetsCount int
+	if err := database.QueryRowContext(ctx, `SELECT COUNT(*) FROM assets WHERE id = 'asset-1'`).Scan(&assetsCount); err != nil {
+		t.Fatalf("count assets error = %v", err)
+	}
+	if assetsCount != 0 {
+		t.Fatalf("assets count = %d, want 0", assetsCount)
+	}
+
+	var eventsCount int
+	if err := database.QueryRowContext(ctx, `SELECT COUNT(*) FROM events WHERE id = 'event-1'`).Scan(&eventsCount); err != nil {
+		t.Fatalf("count events error = %v", err)
+	}
+	if eventsCount != 0 {
+		t.Fatalf("events count = %d, want 0", eventsCount)
+	}
+}
+
 func TestRepositoryDeleteByJobIDClearsEventReferencesBeforeDeletingAssets(t *testing.T) {
 	t.Parallel()
 

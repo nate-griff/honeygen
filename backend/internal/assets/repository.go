@@ -106,7 +106,7 @@ func (r *Repository) Delete(ctx context.Context, id string) error {
 	defer func() {
 		_ = tx.Rollback()
 	}()
-	if _, err := tx.ExecContext(ctx, `UPDATE events SET asset_id = NULL WHERE asset_id = ?`, id); err != nil {
+	if err := clearAssetReferences(ctx, tx, id); err != nil {
 		return fmt.Errorf("clear asset references for %q: %w", id, err)
 	}
 	result, err := tx.ExecContext(ctx, `DELETE FROM assets WHERE id = ?`, id)
@@ -156,15 +156,7 @@ func (r *Repository) DeleteByJobID(ctx context.Context, jobID string) error {
 	defer func() {
 		_ = tx.Rollback()
 	}()
-	if _, err := tx.ExecContext(ctx, `
-		UPDATE events
-		SET asset_id = NULL
-		WHERE asset_id IN (
-			SELECT id
-			FROM assets
-			WHERE generation_job_id = ?
-		)
-	`, jobID); err != nil {
+	if err := clearAssetReferencesByJobID(ctx, tx, jobID); err != nil {
 		return fmt.Errorf("clear asset references for job %q: %w", jobID, err)
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM assets WHERE generation_job_id = ?`, jobID); err != nil {
@@ -174,6 +166,56 @@ func (r *Repository) DeleteByJobID(ctx context.Context, jobID string) error {
 		return fmt.Errorf("commit delete assets for job %q: %w", jobID, err)
 	}
 	return nil
+}
+
+func clearAssetReferences(ctx context.Context, tx *sql.Tx, id string) error {
+	if _, err := tx.ExecContext(ctx, `UPDATE events SET asset_id = NULL WHERE asset_id = ?`, id); err != nil {
+		if !isEventsAssetIDNotNullConstraint(err) {
+			return err
+		}
+		if _, deleteErr := tx.ExecContext(ctx, `DELETE FROM events WHERE asset_id = ?`, id); deleteErr != nil {
+			return fmt.Errorf("delete legacy event references: %w", deleteErr)
+		}
+	}
+	return nil
+}
+
+func clearAssetReferencesByJobID(ctx context.Context, tx *sql.Tx, jobID string) error {
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE events
+		SET asset_id = NULL
+		WHERE asset_id IN (
+			SELECT id
+			FROM assets
+			WHERE generation_job_id = ?
+		)
+	`, jobID); err != nil {
+		if !isEventsAssetIDNotNullConstraint(err) {
+			return err
+		}
+		if _, deleteErr := tx.ExecContext(ctx, `
+			DELETE FROM events
+			WHERE asset_id IN (
+				SELECT id
+				FROM assets
+				WHERE generation_job_id = ?
+			)
+		`, jobID); deleteErr != nil {
+			return fmt.Errorf("delete legacy event references for job: %w", deleteErr)
+		}
+	}
+	return nil
+}
+
+func isEventsAssetIDNotNullConstraint(err error) bool {
+	var sqliteErr *sqlite.Error
+	if !errors.As(err, &sqliteErr) {
+		return false
+	}
+	if sqliteErr.Code() != sqlite3.SQLITE_CONSTRAINT_NOTNULL {
+		return false
+	}
+	return strings.Contains(strings.ToLower(sqliteErr.Error()), "events.asset_id")
 }
 
 func (r *Repository) List(ctx context.Context, options ListOptions) ([]Asset, error) {

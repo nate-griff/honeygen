@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"html"
+	"path"
 	"regexp"
 	"sort"
 	"strings"
@@ -217,7 +218,7 @@ func (s *Service) DeleteAsset(ctx context.Context, assetID string) error {
 		return ErrAssetNotDeletable
 	}
 
-	stagedPath, err := storage.JoinRelative(".deletions", "assets", asset.ID)
+	stagedPath, err := storage.JoinRelative(path.Dir(asset.Path), ".deletions", asset.ID)
 	if err != nil {
 		return fmt.Errorf("build staged asset path for %q: %w", assetID, err)
 	}

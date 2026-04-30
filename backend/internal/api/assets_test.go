@@ -10,12 +10,14 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/natet/honeygen/backend/internal/app"
 	"github.com/natet/honeygen/backend/internal/assets"
 	"github.com/natet/honeygen/backend/internal/config"
+	"github.com/natet/honeygen/backend/internal/generation"
 	"github.com/natet/honeygen/backend/internal/models"
 	"github.com/natet/honeygen/backend/internal/storage"
 )
@@ -134,6 +136,160 @@ func TestAssetUploadEndpointRequiresAuth(t *testing.T) {
 
 	assertAPIErrorResponse(t, rec, http.StatusUnauthorized, "", models.APIErrorResponse{
 		Error: models.APIError{Code: "unauthorized", Message: "authentication required"},
+	})
+}
+
+func TestAssetDeleteEndpointRequiresAuth(t *testing.T) {
+	application := newTestAPIApp(t)
+	router := NewRouter(application)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/assets/asset-1", nil)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	assertAPIErrorResponse(t, rec, http.StatusUnauthorized, "", models.APIErrorResponse{
+		Error: models.APIError{Code: "unauthorized", Message: "authentication required"},
+	})
+}
+
+func TestAssetDeleteEndpointRemovesAssetFromCompletedJob(t *testing.T) {
+	application := newTestAPIApp(t)
+	router := NewRouter(application)
+	seedCompletedGenerationJob(t, application, "northbridge-financial", "delete-job-1")
+	created := seedStoredAsset(t, application, assets.Asset{
+		ID:              "asset-delete-1",
+		GenerationJobID: "delete-job-1",
+		WorldModelID:    "northbridge-financial",
+		SourceType:      "generated",
+		RenderedType:    "text",
+		Path:            "generated/northbridge-financial/delete-job-1/public/delete-me.txt",
+		MIMEType:        "text/plain",
+		Previewable:     true,
+	}, []byte("delete me"))
+
+	req := authenticatedRequest(t, router, http.MethodDelete, "/api/assets/"+created.ID, nil)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status code = %d, want %d, body=%s", rec.Code, http.StatusNoContent, rec.Body.String())
+	}
+	if body := rec.Body.String(); body != "" {
+		t.Fatalf("body = %q, want empty body", body)
+	}
+
+	if _, err := application.AssetRepo.Get(context.Background(), created.ID); !errors.Is(err, assets.ErrNotFound) {
+		t.Fatalf("AssetRepo.Get() after delete error = %v, want %v", err, assets.ErrNotFound)
+	}
+
+	fullPath := filepath.Join(application.Config.StorageRoot, filepath.FromSlash(created.Path))
+	if _, err := os.Stat(fullPath); !os.IsNotExist(err) {
+		t.Fatalf("stored file still exists after delete: %v", err)
+	}
+}
+
+func TestAssetDeleteEndpointReturnsNotFoundWhenAssetDoesNotExist(t *testing.T) {
+	application := newTestAPIApp(t)
+	router := NewRouter(application)
+
+	req := authenticatedRequest(t, router, http.MethodDelete, "/api/assets/missing-asset", nil)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	assertAPIErrorResponse(t, rec, http.StatusNotFound, "", models.APIErrorResponse{
+		Error: models.APIError{Code: "not_found", Message: "asset not found"},
+	})
+}
+
+func TestAssetDeleteEndpointReturnsConflictForNonCompletedJob(t *testing.T) {
+	statuses := []string{"pending", "running", "failed", "canceled"}
+	for _, status := range statuses {
+		t.Run(status, func(t *testing.T) {
+			application := newTestAPIApp(t)
+			router := NewRouter(application)
+			seedJobWithStatus(t, application, "northbridge-financial", "delete-job-status", status)
+			created := seedStoredAsset(t, application, assets.Asset{
+				ID:              "asset-delete-status",
+				GenerationJobID: "delete-job-status",
+				WorldModelID:    "northbridge-financial",
+				SourceType:      "generated",
+				RenderedType:    "text",
+				Path:            "generated/northbridge-financial/delete-job-status/public/file.txt",
+				MIMEType:        "text/plain",
+				Previewable:     true,
+			}, []byte("delete me"))
+
+			req := authenticatedRequest(t, router, http.MethodDelete, "/api/assets/"+created.ID, nil)
+			rec := httptest.NewRecorder()
+
+			router.ServeHTTP(rec, req)
+
+			assertAPIErrorResponse(t, rec, http.StatusConflict, "", models.APIErrorResponse{
+				Error: models.APIError{Code: "asset_not_deletable", Message: "assets can only be deleted from completed generation jobs"},
+			})
+		})
+	}
+}
+
+func TestAssetDeleteEndpointReturnsInternalServerErrorWhenDeleteFails(t *testing.T) {
+	application := newTestAPIApp(t)
+	originalService := application.Generation
+	application.Generation = generation.NewService(generation.ServiceConfig{
+		WorldModels: application.WorldModels,
+		Planner:     application.Planner,
+		Provider:    application.CurrentProvider(),
+		Jobs:        application.JobStore,
+		Assets:      application.AssetRepo,
+		Storage: failingDeleteAssetStorage{
+			Filesystem: application.Storage,
+			err:        errors.New("delete file failed"),
+		},
+		Renderers: application.Renderers,
+	})
+	t.Cleanup(func() {
+		_ = originalService.Close()
+	})
+	router := NewRouter(application)
+	seedCompletedGenerationJob(t, application, "northbridge-financial", "delete-job-fail")
+	created := seedStoredAsset(t, application, assets.Asset{
+		ID:              "asset-delete-fail",
+		GenerationJobID: "delete-job-fail",
+		WorldModelID:    "northbridge-financial",
+		SourceType:      "generated",
+		RenderedType:    "text",
+		Path:            "generated/northbridge-financial/delete-job-fail/public/file.txt",
+		MIMEType:        "text/plain",
+		Previewable:     true,
+	}, []byte("delete me"))
+
+	req := authenticatedRequest(t, router, http.MethodDelete, "/api/assets/"+created.ID, nil)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	assertAPIErrorResponse(t, rec, http.StatusInternalServerError, "", models.APIErrorResponse{
+		Error: models.APIError{Code: "asset_delete_failed", Message: "asset could not be deleted"},
+	})
+
+	if _, err := application.AssetRepo.Get(context.Background(), created.ID); err != nil {
+		t.Fatalf("AssetRepo.Get() after failed delete error = %v, want asset to remain", err)
+	}
+}
+
+func TestAssetEndpointRejectsUnsupportedMethod(t *testing.T) {
+	application := newTestAPIApp(t)
+	router := NewRouter(application)
+
+	req := authenticatedRequest(t, router, http.MethodPost, "/api/assets/asset-1", nil)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	assertAPIErrorResponse(t, rec, http.StatusMethodNotAllowed, "GET, DELETE", models.APIErrorResponse{
+		Error: models.APIError{Code: "method_not_allowed", Message: "method not allowed"},
 	})
 }
 
@@ -443,6 +599,37 @@ func seedJobWithStatus(t *testing.T, application *app.APIApp, worldModelID, jobI
 	`, jobID, worldModelID, status); err != nil {
 		t.Fatalf("seed generation job with status %q error = %v", status, err)
 	}
+}
+
+func seedStoredAsset(t *testing.T, application *app.APIApp, asset assets.Asset, content []byte) assets.Asset {
+	t.Helper()
+
+	storedFile, err := application.Storage.Write(context.Background(), asset.Path, content)
+	if err != nil {
+		t.Fatalf("Storage.Write() error = %v", err)
+	}
+
+	asset.SizeBytes = storedFile.SizeBytes
+	asset.Checksum = storedFile.Checksum
+	if asset.Tags == nil {
+		asset.Tags = []string{}
+	}
+
+	created, err := application.AssetRepo.Create(context.Background(), asset)
+	if err != nil {
+		t.Fatalf("AssetRepo.Create() error = %v", err)
+	}
+
+	return created
+}
+
+type failingDeleteAssetStorage struct {
+	*storage.Filesystem
+	err error
+}
+
+func (s failingDeleteAssetStorage) Delete(context.Context, string) error {
+	return s.err
 }
 
 func baseTestConfig(t *testing.T) config.Config {

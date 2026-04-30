@@ -140,13 +140,15 @@ export default function FileBrowserPage() {
     }
   }
 
-  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteLoadingAssetID, setDeleteLoadingAssetID] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const deleteRequestRef = useRef(0);
   const currentSelectionRef = useRef({
     worldModelID: selectedWorldModelID,
     generationJobID: selectedGenerationJobID,
     assetID: selectedAssetID,
   });
+  const deleteLoading = !!asset && deleteLoadingAssetID === asset.id;
 
   useEffect(() => {
     currentSelectionRef.current = {
@@ -163,11 +165,15 @@ export default function FileBrowserPage() {
     const deletingAssetID = asset.id;
     const deletingWorldModelID = selectedWorldModelID;
     const deletingGenerationJobID = selectedGenerationJobID;
-    setDeleteLoading(true);
+    const deleteRequestToken = deleteRequestRef.current + 1;
+    deleteRequestRef.current = deleteRequestToken;
+    setDeleteLoadingAssetID(deletingAssetID);
     setDeleteError(null);
     try {
       await deleteAsset(deletingAssetID);
-      setDeleteLoading(false);
+      if (deleteRequestRef.current === deleteRequestToken) {
+        setDeleteLoadingAssetID(null);
+      }
       const currentSelection = currentSelectionRef.current;
       if (
         currentSelection.worldModelID === deletingWorldModelID &&
@@ -190,8 +196,18 @@ export default function FileBrowserPage() {
       } else if (error instanceof Error) {
         msg = error.message;
       }
-      setDeleteError(msg);
-      setDeleteLoading(false);
+      if (deleteRequestRef.current === deleteRequestToken) {
+        setDeleteLoadingAssetID(null);
+      }
+      const currentSelection = currentSelectionRef.current;
+      if (
+        deleteRequestRef.current === deleteRequestToken &&
+        currentSelection.worldModelID === deletingWorldModelID &&
+        currentSelection.generationJobID === deletingGenerationJobID &&
+        currentSelection.assetID === deletingAssetID
+      ) {
+        setDeleteError(msg);
+      }
     }
   }
 

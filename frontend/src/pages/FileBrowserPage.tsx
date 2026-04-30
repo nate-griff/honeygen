@@ -15,6 +15,7 @@ import type { Asset, AssetContentResponse, AssetTreeNode } from "../types/assets
 import type { GenerationJob } from "../types/generation";
 import type { WorldModelSummary } from "../types/worldModels";
 import { getUploadErrorMessage } from "./fileBrowserUploadErrors";
+import { APIClientError } from "../api/client";
 
 interface FileBrowserLoaderData {
   models: WorldModelSummary[];
@@ -300,7 +301,19 @@ export default function FileBrowserPage() {
         </Panel>
         <div className="stack">
           <Panel title="Asset metadata" subtitle="Selected asset details from /api/assets/{id}">
-            {asset ? <AssetMetadataCard asset={asset} /> : <EmptyState title="Pick an asset" message="Choose a file from the tree to inspect metadata." />}
+            {asset ? (
+                <>
+                  <AssetMetadataCard
+                    asset={asset}
+                    onDelete={canDeleteAsset ? handleDeleteAsset : undefined}
+                    deleteLoading={deleteLoading}
+                    canDelete={canDeleteAsset}
+                  />
+                  {deleteError && <ErrorAlert message={deleteError} />}
+                </>
+              ) : (
+                <EmptyState title="Pick an asset" message="Choose a file from the tree to inspect metadata." />
+              )}
           </Panel>
           <Panel title="Preview" subtitle="Sanitized rendering for markdown and HTML, text for plain formats">
             <AssetPreview asset={asset} content={assetContent} />

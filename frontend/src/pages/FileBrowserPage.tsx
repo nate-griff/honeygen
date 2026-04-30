@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useLoaderData, useNavigate } from "react-router-dom";
+import { useLoaderData, useNavigate, useRevalidator } from "react-router-dom";
 import { getAsset, getAssetContent, listAssetTree, uploadAsset } from "../api/assets";
 import { listGenerationJobs } from "../api/generation";
 import { listWorldModels } from "../api/worldModels";
@@ -15,6 +15,7 @@ import type { Asset, AssetContentResponse, AssetTreeNode } from "../types/assets
 import type { GenerationJob } from "../types/generation";
 import type { WorldModelSummary } from "../types/worldModels";
 import { getUploadErrorMessage } from "./fileBrowserUploadErrors";
+import { getDeleteSuccessAction } from "./fileBrowserDeleteSuccess";
 import { APIClientError } from "../api/client";
 
 interface FileBrowserLoaderData {
@@ -79,6 +80,7 @@ export default function FileBrowserPage() {
     assetContent,
   } = useLoaderData() as FileBrowserLoaderData;
   const navigate = useNavigate();
+  const revalidator = useRevalidator();
 
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadTargetPath, setUploadTargetPath] = useState("");
@@ -176,15 +178,22 @@ export default function FileBrowserPage() {
       }
       const currentSelection = currentSelectionRef.current;
       if (
-        currentSelection.worldModelID === deletingWorldModelID &&
-        currentSelection.generationJobID === deletingGenerationJobID &&
-        currentSelection.assetID === deletingAssetID
+        getDeleteSuccessAction({
+          currentSelection,
+          deletingSelection: {
+            worldModelID: deletingWorldModelID,
+            generationJobID: deletingGenerationJobID,
+            assetID: deletingAssetID,
+          },
+        }) === "clear-selection"
       ) {
         updateQuery({
           world_model_id: deletingWorldModelID,
           generation_job_id: deletingGenerationJobID,
           asset_id: undefined,
         });
+      } else {
+        revalidator.revalidate();
       }
     } catch (error) {
       let msg = "Failed to delete asset.";

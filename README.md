@@ -3,6 +3,8 @@ Honeygen is a honeypot that generates realistic decoy enterprise files from a wo
 
 It is designed for security research and deception workflows: build a believable file corpus, expose it through decoy endpoints (HTTP/FTP/NFS/SMB), and observe how those resources are accessed.
 
+![alt text](docs/dashboard.png "Dashboard")
+
 ## What Honeygen Includes
 
 - A Go API for world models, generation jobs, assets, deployments, provider settings, and events
@@ -112,6 +114,8 @@ honeygen/
 ```
 
 ## How File Generation Works
+
+![alt text](docs/generation.png "File Generation UI")
 
 Honeygen generation is deterministic in structure and variable in content.
 

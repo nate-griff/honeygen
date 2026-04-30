@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLoaderData, useNavigate } from "react-router-dom";
 import { getAsset, getAssetContent, listAssetTree, uploadAsset } from "../api/assets";
 import { listGenerationJobs } from "../api/generation";
@@ -142,27 +142,53 @@ export default function FileBrowserPage() {
 
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const currentSelectionRef = useRef({
+    worldModelID: selectedWorldModelID,
+    generationJobID: selectedGenerationJobID,
+    assetID: selectedAssetID,
+  });
+
+  useEffect(() => {
+    currentSelectionRef.current = {
+      worldModelID: selectedWorldModelID,
+      generationJobID: selectedGenerationJobID,
+      assetID: selectedAssetID,
+    };
+    setDeleteError(null);
+  }, [selectedWorldModelID, selectedGenerationJobID, selectedAssetID]);
 
   async function handleDeleteAsset() {
     if (!asset) return;
     if (!window.confirm("Are you sure you want to delete this asset? This action cannot be undone.")) return;
+    const deletingAssetID = asset.id;
+    const deletingWorldModelID = selectedWorldModelID;
+    const deletingGenerationJobID = selectedGenerationJobID;
     setDeleteLoading(true);
     setDeleteError(null);
     try {
-      await deleteAsset(asset.id);
+      await deleteAsset(deletingAssetID);
       setDeleteLoading(false);
-      updateQuery({
-        world_model_id: selectedWorldModelID,
-        generation_job_id: selectedGenerationJobID,
-        asset_id: undefined,
-      });
+      const currentSelection = currentSelectionRef.current;
+      if (
+        currentSelection.worldModelID === deletingWorldModelID &&
+        currentSelection.generationJobID === deletingGenerationJobID &&
+        currentSelection.assetID === deletingAssetID
+      ) {
+        updateQuery({
+          world_model_id: deletingWorldModelID,
+          generation_job_id: deletingGenerationJobID,
+          asset_id: undefined,
+        });
+      }
     } catch (error) {
       let msg = "Failed to delete asset.";
-      if (error instanceof Error) {
+      if (error instanceof APIClientError) {
         msg = error.message;
-        if ((error as any).code === "asset_not_deletable") {
+        if (error.code === "asset_not_deletable") {
           msg = "This asset cannot be deleted.";
         }
+      } else if (error instanceof Error) {
+        msg = error.message;
       }
       setDeleteError(msg);
       setDeleteLoading(false);

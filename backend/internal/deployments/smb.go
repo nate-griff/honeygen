@@ -132,7 +132,7 @@ func buildSMBConfig(d Deployment, sharePath, runDir string) string {
 	smb ports = %d
 	vfs objects = full_audit
 	full_audit:prefix = %s|%%I
-	full_audit:success = connect disconnect open
+	full_audit:success = all
 	full_audit:failure = none
 	full_audit:syslog = false
 	load printers = no

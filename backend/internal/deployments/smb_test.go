@@ -25,7 +25,7 @@ func TestBuildSMBConfigIncludesGuestReadonlyShareAndCustomPort(t *testing.T) {
 		"vfs objects = full_audit",
 		"full_audit:syslog = false",
 		"full_audit:prefix = deployment-smb-1|%I",
-		"full_audit:success = connect disconnect open",
+		"full_audit:success = all",
 		"[honeygen]",
 		"path = " + filepath.ToSlash(sharePath),
 		"read only = yes",

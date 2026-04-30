@@ -21,6 +21,8 @@ import (
 
 var ErrAssetNotDeletable = errors.New("asset cannot be deleted: generation job is not completed")
 
+const assetDeleteRollbackTimeout = 5 * time.Second
+
 type RunRequest struct {
 	WorldModelID string `json:"world_model_id"`
 }
@@ -217,7 +219,9 @@ func (s *Service) DeleteAsset(ctx context.Context, assetID string) error {
 		return fmt.Errorf("delete asset record %q: %w", assetID, err)
 	}
 	if err := s.storage.Delete(ctx, asset.Path); err != nil {
-		if _, restoreErr := s.assets.Create(ctx, asset); restoreErr != nil {
+		restoreCtx, restoreCancel := context.WithTimeout(s.finalizeContext(), assetDeleteRollbackTimeout)
+		defer restoreCancel()
+		if _, restoreErr := s.assets.Create(restoreCtx, asset); restoreErr != nil {
 			return fmt.Errorf("delete asset file %q: %w (restore asset record: %v)", assetID, err, restoreErr)
 		}
 		return fmt.Errorf("delete asset file %q: %w", assetID, err)

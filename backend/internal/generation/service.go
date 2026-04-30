@@ -213,11 +213,14 @@ func (s *Service) DeleteAsset(ctx context.Context, assetID string) error {
 		return ErrAssetNotDeletable
 	}
 
-	if err := s.storage.Delete(ctx, asset.Path); err != nil {
-		return fmt.Errorf("delete asset file %q: %w", assetID, err)
-	}
 	if err := s.assets.Delete(ctx, assetID); err != nil {
 		return fmt.Errorf("delete asset record %q: %w", assetID, err)
+	}
+	if err := s.storage.Delete(ctx, asset.Path); err != nil {
+		if _, restoreErr := s.assets.Create(ctx, asset); restoreErr != nil {
+			return fmt.Errorf("delete asset file %q: %w (restore asset record: %v)", assetID, err, restoreErr)
+		}
+		return fmt.Errorf("delete asset file %q: %w", assetID, err)
 	}
 
 	return nil

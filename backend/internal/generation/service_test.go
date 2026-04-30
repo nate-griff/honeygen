@@ -623,6 +623,86 @@ func TestServiceDeleteAssetRemovesCompletedJobFileAndRecord(t *testing.T) {
 	}
 }
 
+func TestServiceDeleteAssetKeepsFileWhenMetadataDeleteFails(t *testing.T) {
+	t.Parallel()
+
+	database := newGenerationTestDatabase(t)
+	repo := worldmodels.NewRepository(database)
+	if _, err := repo.Create(context.Background(), StoredWorldModelForTest("world-1")); err != nil {
+		t.Fatalf("Create() world model error = %v", err)
+	}
+
+	root := t.TempDir()
+	jobStore := NewJobStore(database)
+	job, err := jobStore.Create(context.Background(), "world-1")
+	if err != nil {
+		t.Fatalf("Create() generation job error = %v", err)
+	}
+	job, err = jobStore.SetCompleted(context.Background(), job.ID, Summary{})
+	if err != nil {
+		t.Fatalf("SetCompleted() error = %v", err)
+	}
+
+	assetRepo := assets.NewRepository(database)
+	fileStore := storage.NewFilesystem(root)
+	storedFile, err := fileStore.Write(context.Background(), "generated/world-1/"+job.ID+"/public/file.txt", []byte("hello"))
+	if err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+	created, err := assetRepo.Create(context.Background(), assets.Asset{
+		ID:              "asset-1",
+		GenerationJobID: job.ID,
+		WorldModelID:    "world-1",
+		SourceType:      "generated",
+		RenderedType:    "text",
+		Path:            storedFile.Path,
+		MIMEType:        "text/plain",
+		SizeBytes:       storedFile.SizeBytes,
+		Previewable:     true,
+		Checksum:        storedFile.Checksum,
+	})
+	if err != nil {
+		t.Fatalf("Create() asset error = %v", err)
+	}
+
+	service := NewService(ServiceConfig{
+		WorldModels: repo,
+		Planner:     NewPlanner(),
+		Provider:    generationStubProvider{},
+		Jobs:        jobStore,
+		Assets: failingDeleteAssetRepository{
+			Repository: assetRepo,
+			err:        errors.New("delete asset record failed"),
+		},
+		Storage: fileStore,
+		Renderers: rendering.NewRegistry(rendering.RegistryConfig{
+			PDF: rendering.StaticPDFRenderer([]byte("%PDF-1.4\n%stub\n")),
+		}),
+	})
+	t.Cleanup(func() { _ = service.Close() })
+
+	deleter, ok := any(service).(interface {
+		DeleteAsset(context.Context, string) error
+	})
+	if !ok {
+		t.Fatal("Service does not implement DeleteAsset")
+	}
+
+	err = deleter.DeleteAsset(context.Background(), created.ID)
+	if err == nil || !strings.Contains(err.Error(), "delete asset record") {
+		t.Fatalf("DeleteAsset() error = %v, want delete asset record failure", err)
+	}
+
+	if _, err := assetRepo.Get(context.Background(), created.ID); err != nil {
+		t.Fatalf("Get() after failed DeleteAsset() error = %v, want asset to remain", err)
+	}
+
+	fullPath := filepath.Join(root, filepath.FromSlash(created.Path))
+	if _, err := os.Stat(fullPath); err != nil {
+		t.Fatalf("asset file missing after metadata delete failure: %v", err)
+	}
+}
+
 func TestServiceDeleteAssetReturnsNotDeletableForNonCompletedJob(t *testing.T) {
 	t.Parallel()
 
@@ -874,6 +954,15 @@ type failingDeleteDirStorage struct {
 
 func (s failingDeleteDirStorage) DeleteDir(context.Context, string) error {
 	return s.err
+}
+
+type failingDeleteAssetRepository struct {
+	*assets.Repository
+	err error
+}
+
+func (r failingDeleteAssetRepository) Delete(context.Context, string) error {
+	return r.err
 }
 
 func waitForJobStatus(t *testing.T, store *JobStore, jobID, wantStatus string) Job {

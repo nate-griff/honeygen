@@ -1,5 +1,5 @@
 # Honeygen
-Honeygen generates realistic decoy enterprise files from a world model, serves those files over multiple protocols, and records access telemetry in a unified event log.
+Honeygen is a honeypot that generates realistic decoy enterprise files from a world model, serves those files over multiple protocols, and records access telemetry in a unified event log.
 
 It is designed for security research and deception workflows: build a believable file corpus, expose it through decoy endpoints (HTTP/FTP/NFS/SMB), and observe how those resources are accessed.
 

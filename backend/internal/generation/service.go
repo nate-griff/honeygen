@@ -19,6 +19,8 @@ import (
 	"github.com/natet/honeygen/backend/internal/worldmodels"
 )
 
+var ErrAssetNotDeletable = errors.New("asset cannot be deleted: generation job is not completed")
+
 type RunRequest struct {
 	WorldModelID string `json:"world_model_id"`
 }
@@ -29,7 +31,9 @@ type worldModelReader interface {
 
 type assetRepository interface {
 	Create(context.Context, assets.Asset) (assets.Asset, error)
+	Get(context.Context, string) (assets.Asset, error)
 	List(context.Context, assets.ListOptions) ([]assets.Asset, error)
+	Delete(context.Context, string) error
 	DeleteByJobID(context.Context, string) error
 }
 
@@ -190,6 +194,30 @@ func (s *Service) Delete(ctx context.Context, jobID string) error {
 
 	if err := s.jobs.Delete(ctx, jobID); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+func (s *Service) DeleteAsset(ctx context.Context, assetID string) error {
+	asset, err := s.assets.Get(ctx, assetID)
+	if err != nil {
+		return err
+	}
+
+	job, err := s.jobs.Get(ctx, asset.GenerationJobID)
+	if err != nil {
+		return err
+	}
+	if job.Status != StatusCompleted {
+		return ErrAssetNotDeletable
+	}
+
+	if err := s.storage.Delete(ctx, asset.Path); err != nil {
+		return fmt.Errorf("delete asset file %q: %w", assetID, err)
+	}
+	if err := s.assets.Delete(ctx, assetID); err != nil {
+		return fmt.Errorf("delete asset record %q: %w", assetID, err)
 	}
 
 	return nil

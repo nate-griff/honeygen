@@ -441,7 +441,11 @@ func buildPrompt(model worldmodels.WorldModel, entry ManifestEntry) string {
 	builder.WriteString("\nPath: ")
 	builder.WriteString(entry.Path)
 	builder.WriteString("\nFormat: ")
-	builder.WriteString(entry.RenderedType)
+	if entry.RenderedType == "pdf" {
+		builder.WriteString("html")
+	} else {
+		builder.WriteString(entry.RenderedType)
+	}
 	builder.WriteString("\nInstructions: ")
 	builder.WriteString(entry.PromptHint)
 	if len(model.Departments) > 0 {
@@ -459,7 +463,7 @@ func buildPrompt(model worldmodels.WorldModel, entry ManifestEntry) string {
 		builder.WriteString("\nReturn raw CSV text only. Do not include Markdown, prose, or code fences.")
 	case "markdown":
 		builder.WriteString("\nReturn Markdown only. Do not include code fences.")
-	case "html":
+	case "html", "pdf":
 		builder.WriteString("\nReturn HTML only. Do not include Markdown fences or explanatory text.")
 	}
 	builder.WriteString("\nKeep the content plausible, businesslike, and finite.")

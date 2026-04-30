@@ -886,3 +886,43 @@ func TestBuildPromptOmitsColorsWhenEmpty(t *testing.T) {
 		t.Error("prompt should not contain 'Brand colors:' when colors are empty")
 	}
 }
+
+func TestBuildPromptRequestsHTMLForPDF(t *testing.T) {
+	t.Parallel()
+
+	model := worldmodels.WorldModel{
+		Organization: worldmodels.Organization{
+			Name:     "Test Corp",
+			Industry: "Technology",
+			Region:   "US",
+		},
+		Branding: worldmodels.Branding{
+			Tone: "formal",
+		},
+	}
+	entry := ManifestEntry{
+		Title:        "Acceptable Use Policy",
+		Category:     "policy",
+		Path:         "intranet/policies/acceptable-use-policy.pdf",
+		RenderedType: "pdf",
+		PromptHint:   "Generate the policy",
+	}
+
+	prompt := buildPrompt(model, entry)
+
+	if !strings.Contains(prompt, "Return HTML only.") {
+		t.Fatalf("prompt = %q, want HTML-only instructions", prompt)
+	}
+	if !strings.Contains(prompt, "Do not include Markdown fences or explanatory text.") {
+		t.Fatalf("prompt = %q, want no-wrapper instructions", prompt)
+	}
+	if strings.Contains(prompt, "Return plain text only.") {
+		t.Fatalf("prompt = %q, should not request plain text for pdf output", prompt)
+	}
+	if strings.Contains(prompt, "\nFormat: pdf") {
+		t.Fatalf("prompt = %q, should not advertise pdf as the provider output format", prompt)
+	}
+	if !strings.Contains(prompt, "\nFormat: html") {
+		t.Fatalf("prompt = %q, want html as the provider output format", prompt)
+	}
+}

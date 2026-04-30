@@ -9,11 +9,30 @@ import (
 type HTMLRenderer struct{}
 
 func (HTMLRenderer) Render(_ context.Context, document Document) (Output, error) {
+	body := document.Body
+	if !isStandaloneHTMLDocument(body) {
+		body = renderHTMLDocument(document.Title, body)
+	}
+
 	return Output{
-		Bytes:       []byte(renderHTMLDocument(document.Title, document.Body)),
+		Bytes:       []byte(body),
 		MIMEType:    "text/html; charset=utf-8",
 		Previewable: true,
 	}, nil
+}
+
+func isStandaloneHTMLDocument(body string) bool {
+	trimmed := strings.TrimSpace(body)
+	if trimmed == "" {
+		return false
+	}
+
+	lowered := strings.ToLower(trimmed)
+	if strings.HasPrefix(lowered, "<!doctype html") || strings.HasPrefix(lowered, "<html") {
+		return strings.Contains(lowered, "</html>")
+	}
+
+	return false
 }
 
 func renderHTMLDocument(title, body string) string {

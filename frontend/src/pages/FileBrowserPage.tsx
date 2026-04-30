@@ -6,6 +6,7 @@ import { listWorldModels } from "../api/worldModels";
 import { PageHeader } from "../components/layout/PageHeader";
 import { Panel } from "../components/layout/Panel";
 import { AssetMetadataCard } from "../components/assets/AssetMetadataCard";
+import { deleteAsset } from "../api/assets";
 import { AssetPreview } from "../components/assets/AssetPreview";
 import { AssetTree } from "../components/assets/AssetTree";
 import { EmptyState } from "../components/layout/EmptyState";
@@ -86,6 +87,7 @@ export default function FileBrowserPage() {
 
   const selectedJob = jobs.find((j) => j.id === selectedGenerationJobID) ?? null;
   const canUpload = selectedJob?.status === "completed";
+  const canDeleteAsset = selectedJob?.status === "completed" && !!asset;
 
   function updateQuery(next: {
     world_model_id?: string;
@@ -134,6 +136,35 @@ export default function FileBrowserPage() {
     } catch (error) {
       setUploadError(getUploadErrorMessage(error));
       setUploadLoading(false);
+    }
+  }
+
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  async function handleDeleteAsset() {
+    if (!asset) return;
+    if (!window.confirm("Are you sure you want to delete this asset? This action cannot be undone.")) return;
+    setDeleteLoading(true);
+    setDeleteError(null);
+    try {
+      await deleteAsset(asset.id);
+      setDeleteLoading(false);
+      updateQuery({
+        world_model_id: selectedWorldModelID,
+        generation_job_id: selectedGenerationJobID,
+        asset_id: undefined,
+      });
+    } catch (error) {
+      let msg = "Failed to delete asset.";
+      if (error instanceof Error) {
+        msg = error.message;
+        if ((error as any).code === "asset_not_deletable") {
+          msg = "This asset cannot be deleted.";
+        }
+      }
+      setDeleteError(msg);
+      setDeleteLoading(false);
     }
   }
 

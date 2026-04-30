@@ -1,215 +1,326 @@
-# Honeygen Decoy Research Platform
+# Honeygen
+Honeygen generates realistic decoy enterprise files from a world model, serves those files over multiple protocols, and records access telemetry in a unified event log.
 
-Honeygen generates a believable decoy document set from a saved world model, serves that content through a decoy web service, and records access events in an admin UI.
+It is designed for security research and deception workflows: build a believable file corpus, expose it through decoy endpoints (HTTP/FTP/NFS/SMB), and observe how those resources are accessed.
 
-## Dependencies
+## What Honeygen Includes
 
-| Area | Dependency | Why it is needed |
-| --- | --- | --- |
-| Container workflow | Docker Engine / Docker Desktop with Docker Compose v2 | Recommended way to run the full stack locally |
-| Backend local development | Go 1.24+ | Required by `backend/go.mod`; `github.com/xuri/excelize/v2` now requires Go 1.24 |
-| Frontend local development | Node.js and npm | Required to build and run the Vite/React admin UI from `frontend\` |
-| Database | SQLite via `modernc.org/sqlite` | Persistent storage for world models, jobs, assets, events, and deployments |
-| Backend Go module deps | `github.com/google/uuid`, `github.com/xuri/excelize/v2`, `modernc.org/sqlite`, `goftp.io/server/v2`, `github.com/willscott/go-nfs` | IDs, XLSX rendering, SQLite storage, FTP deployments, and NFS deployments |
-| PDF rendering | `wkhtmltopdf` | Required to render PDF assets from generated HTML |
-| SMB deployments | Samba `smbd` | Required only for `protocol: "smb"` deployments; Honeygen manages `smbd` as a subprocess and exposes the `honeygen` guest share |
-| Frontend app deps | React, React Router, Vite, TypeScript, `marked`, `dompurify` | Admin UI, routing, markdown rendering, and safe HTML sanitization |
+- A Go API for world models, generation jobs, assets, deployments, provider settings, and events
+- A React admin UI for operating the system end-to-end
+- A decoy web service that serves generated files under `/generated/*` and forwards access events
+- Protocol deployments that can expose generated file trees over HTTP, FTP, NFS, and SMB
+- SQLite-backed metadata persistence plus volume-backed generated files
 
-## What you can do
+## Quickstart (Docker + `.env`)
 
-- run the full stack with Docker Compose
-- use the seeded demo world model (`northbridge-financial`)
-- test your external provider connection
-- generate decoy assets
-- browse generated files and safe previews
-- open the decoy service and trigger access events
-- confirm those events in the admin UI
+### 1) Prerequisites
 
-## Quick start
+- Docker Desktop / Docker Engine with Docker Compose v2
+- An OpenAI-compatible provider endpoint and API key (required for generation)
 
-1. Copy the example environment file.
+### 2) Create `.env`
 
-   ```powershell
-   Copy-Item .env.example .env
-   ```
-
-2. Edit `.env` and set at least:
-
-   - `INTERNAL_EVENT_INGEST_TOKEN` to a shared secret used by `api` and `decoy-web`
-   - `LLM_BASE_URL` to your external OpenAI-compatible API base URL
-   - `LLM_API_KEY` to a valid API key
-   - `LLM_MODEL` to the model you want the provider to use
-
-   Notes:
-
-   - For the browser-based admin UI, set `VITE_API_BASE_URL=` so requests use the admin container's same-origin `/api/*` proxy.
-   - PowerShell, curl, and other direct API clients should call `http://localhost:8080/...` themselves; `VITE_API_BASE_URL` only affects the built admin UI.
-
-3. Start the stack.
-
-   ```powershell
-   docker compose up --build
-   ```
-
-4. Open:
-
-    - Admin UI: http://localhost:4173
-    - API health: http://localhost:8080/healthz
-    - Decoy web: http://localhost:8081
-    - Deployment ports: `9000-9020` are exposed by default for HTTP, FTP, NFS, and SMB deployments created from the UI
-    - FTP passive data ports: `9011-9020` are reserved inside the default deployment port range so FTP listings and downloads work through Docker
-
-## Demo walkthrough
-
-### 1. Confirm the seeded world model
-
-- Open the admin UI.
-- The default demo model is **Northbridge Financial Advisory**.
-- The API seeds it automatically on first startup with id `northbridge-financial`.
-- Source payload: `sample-data/world-models/northbridge-financial.json`
-
-### 2. Confirm provider readiness
-
-The Generation page shows whether provider settings are configured. Use the API to verify live connectivity and auth:
-
-```powershell
-Invoke-RestMethod -Method Post http://localhost:8080/api/provider/test
+```bash
+cp .env.example .env
 ```
 
-Expected result: `ready: true`, `mode: "external"`.
+### 3) Set required values in `.env`
 
-If the provider is not ready, generation will fail until the `LLM_*` settings are fixed.
+At minimum, set these to real values:
 
-### 3. Run generation
+- `APP_ENV` (for local use: `development`)
+- `INTERNAL_EVENT_INGEST_TOKEN` (shared secret between `api` and `decoy-web`)
+- `ADMIN_PASSWORD` (used for `/api/auth/login` and UI login)
+- `PROVIDER_CONFIG_ENCRYPTION_KEY` (used to encrypt saved provider API keys in SQLite)
 
-From the admin UI:
+For generation to work immediately, also set:
 
-- go to **Generation**
-- keep **Northbridge Financial Advisory** selected
-- click **Run generation**
-
-Or call the API directly:
-
-```powershell
-Invoke-RestMethod `
-  -Method Post `
-  -Uri http://localhost:8080/api/generation/run `
-  -ContentType 'application/json' `
-  -Body '{"world_model_id":"northbridge-financial"}'
-```
-
-Expected result:
-
-- the job reaches `completed`
-- `summary.manifest_count` and `summary.asset_count` are populated
-- the Dashboard and File Browser begin showing generated assets
-
-### 4. Browse generated content
-
-- Open **File Browser** in the admin UI.
-- Filter to the latest generation job if needed.
-- Select an HTML, Markdown, CSV, or text asset to view inline content.
-- Use the download button for binary files such as PDFs, DOCX files, and XLSX files.
-
-### 5. Trigger decoy traffic
-
-- Open the decoy landing page at http://localhost:8081
-- Click one of the generated links shown on the landing page, or open a generated asset path returned by the API
-- The landing page is intentionally simple and may not point at the newest generation job after multiple runs; use the File Browser if you need the latest exact path.
-- Example pattern:
-
-  ```text
-  http://localhost:8081/generated/northbridge-financial/<generation-job-id>/public/about.html
-  ```
-
-### 6. Verify event capture
-
-- Open **Dashboard** to see recent event activity
-- Open **Event Log** for full request details
-- Or query the API directly:
-
-  ```powershell
-  Invoke-RestMethod 'http://localhost:8080/api/events?world_model_id=northbridge-financial&limit=10'
-  ```
-
-Expected result:
-
-- a new event appears with a path under `/generated/northbridge-financial/...`
-- the Dashboard `recent_events` count increases
-- the Event Log shows status code, source IP, path, and request details; `metadata` is usually empty in the default decoy flow
-
-## Persistence check
-
-Generated assets and SQLite data live in named Docker volumes:
-
-- `sqlite-data`
-- `generated-assets`
-
-To verify persistence without deleting volumes:
-
-```powershell
-docker compose restart
-```
-
-After restart:
-
-- the latest generation job should still appear
-- generated files should still load from the decoy service
-- previously recorded events should still appear in the Dashboard and Event Log
-
-## Configuration reference
-
-### Required for a real demo
-
-- `INTERNAL_EVENT_INGEST_TOKEN`
 - `LLM_BASE_URL`
 - `LLM_API_KEY`
 - `LLM_MODEL`
 
-### Common local defaults
+Notes:
 
-- `API_PORT=8080`
-- `ADMIN_WEB_PORT=4173`
-- `DECOY_WEB_PORT=8081`
-- `DEPLOYMENT_PORTS=9000-9020`
-- `FTP_PUBLIC_HOST=127.0.0.1`
-- `FTP_PASSIVE_PORTS=9011-9020`
-- `SQLITE_PATH=/app/storage/sqlite/honeygen.db`
-- `GENERATED_ASSETS_DIR=/app/storage/generated`
-- `INTERNAL_API_BASE_URL=http://api:8080`
+- Keep `VITE_API_BASE_URL=` empty for Docker Compose default behavior; the admin UI then uses same-origin `/api/*` proxying through NGINX.
+- `DEPLOYMENT_PORTS` publishes the deployment/listener port range (`9000-9020` by default), while deployment records are validated to use ports `9000-9010`.
+- `FTP_PASSIVE_PORTS` defaults to `9011-9020` for FTP passive data channels.
 
-## Deployment protocol quick reference
+### 4) Build and run
 
-These commands were validated against local deployments on ports `9001` (SMB), `9002` (FTP), and `9003` (NFS).
+```bash
+docker compose up --build -d
+```
 
-| Protocol | Tested access pattern | Notes |
-| --- | --- | --- |
-| SMB | `smbclient //127.0.0.1/honeygen -p 9001 -N -c 'ls'` | Share name is always `honeygen`; guest read-only access |
-| FTP | `curl.exe --user anonymous:anonymous ftp://localhost:9002/` | Anonymous read-only FTP; passive-mode Windows clients work. By default the passive range is `9011-9020`, so avoid assigning deployment listeners in that slice when you need FTP |
-| NFS | `wsl -d Debian -u root -- mount -t nfs -o nfsvers=3,noacl,tcp,port=9003,mountport=9003,nolock,noresvport 127.0.0.1:/mount /mnt/honeygen-nfs-test` | Standard Windows Explorer does not mount custom-port NFS shares; use WSL/Linux tools |
+### 5) Open the services
 
-Windows-specific notes:
+- Admin UI: [http://localhost:4173](http://localhost:4173)
+- API health probe: [http://localhost:8080/healthz](http://localhost:8080/healthz)
+- Decoy web: [http://localhost:8081](http://localhost:8081)
 
-- **FTP**: PowerShell/.NET and other passive-mode clients can download files successfully from `ftp://localhost:9002/...`. Windows `ftp.exe` and other active-mode clients do not work reliably through Docker NAT because the server cannot connect back to the client loopback address.
-- **SMB**: the built-in Windows SMB client always targets port `445`, so it cannot reach Honeygen's custom-port SMB listener on `9001`. On the same Windows host, `\\\\localhost\\honeygen` reaches the Windows SMB stack instead of the Honeygen container. Use WSL/Linux clients such as `smbclient`, or run the SMB service on a separate host/IP that can expose port `445`.
+### 6) Log in to the UI
 
-Event log telemetry now covers all deployment protocols:
+Use the `ADMIN_PASSWORD` you set in `.env`.
 
-- **HTTP / decoy-web**: `http_request`
-- **FTP**: `ftp_list`, `ftp_download`
-- **NFS**: `nfs_mount`, `nfs_list`, `nfs_read`
-- **SMB**: `smb_connect`, `smb_disconnect`, `smb_opendir`, `smb_open`
+## Project Overview
 
-Non-HTTP events populate canonical generated-file paths plus `metadata.protocol`, `metadata.operation`, and `metadata.deployment_id`. Fields like `status_code`, `user_agent`, and `referer` remain HTTP-only, and source IP is best-effort based on what each protocol exposes.
+Runtime services in `docker-compose.yml`:
 
-## Tradeoffs and current limits
+- `api` (`backend/cmd/api`): main API, SQLite access, generation orchestration, deployment manager
+- `admin-web` (`frontend` build served by NGINX): operator console + `/api/*` reverse proxy
+- `decoy-web` (`backend/cmd/decoy-web`): serves `/generated/*` and forwards non-health HTTP telemetry
 
-- **External provider only:** Honeygen does not ship a built-in local generation provider. For deterministic demos or CI, point `LLM_*` at a deterministic external OpenAI-compatible endpoint or test double.
-- **Limited binary preview support:** inline preview is only available for safe text-like assets. PDFs and other binaries are metadata/download only.
-- **Reduced PDF fidelity:** PDF output is produced from generated HTML through `wkhtmltopdf`, so advanced CSS/layout fidelity is lower than a full browser print pipeline.
-- **Protocol telemetry fidelity differs by protocol:** HTTP still has the richest metadata. FTP/NFS/SMB now emit access events into the same event log, but they only expose the fields their respective server libraries provide.
+Storage model:
 
-## More docs
+- SQLite metadata: `/app/storage/sqlite/honeygen.db` (Compose volume: `sqlite-data`)
+- Generated files: `/app/storage/generated` (Compose volume: `generated-assets`)
+
+## Repository Layout
+
+```text
+honeygen/
+  backend/
+    cmd/
+      api/                 # API service entrypoint
+      decoy-web/           # Decoy web service entrypoint
+    internal/
+      api/                 # HTTP handlers + routing + auth/session
+      app/                 # App wiring, startup, dependency graph
+      generation/          # Planner + generation service + job lifecycle
+      deployments/         # HTTP/FTP/NFS/SMB deployment manager
+      worldmodels/         # World model validation/persistence/seed
+      assets/              # Asset metadata repository
+      events/              # Event ingestion and query services
+      rendering/           # HTML/Markdown/Text/CSV/PDF/DOCX/XLSX renderers
+      storage/             # Filesystem storage abstraction
+      db/                  # SQLite migrations and status queries
+      provider/            # OpenAI-compatible provider integration
+      ipintel/             # Optional GeoIP/RDAP enrichment pipeline
+    Dockerfile
+  frontend/
+    src/
+      api/                 # Browser API client modules
+      pages/               # Dashboard, Generation, Files, Events, Deployments, Settings
+      components/          # UI components
+      app/                 # Router and shell
+    Dockerfile
+    nginx.conf             # API proxy and download routing
+  sample-data/
+    world-models/          # Seed world model JSON
+  docs/                    # Architecture/API/data model documentation
+  docker-compose.yml
+  .env.example
+```
+
+## How File Generation Works
+
+Honeygen generation is deterministic in structure and variable in content.
+
+1. A world model is loaded from SQLite (`/api/world-models/:id`).
+2. The planner builds a manifest of target assets:
+   - baseline public/intranet docs
+   - per-department memos
+   - per-employee project summaries
+   - per-employee varied personal/work files from a template pool
+3. If `generation_settings` is present in the world model (`file_count_target`, `file_count_variance`), employee file counts vary accordingly.
+4. For each manifest entry, Honeygen calls the configured OpenAI-compatible provider once.
+5. Provider text is normalized and rendered into the requested output format (`html`, `markdown`, `text`, `csv`, `pdf`, `docx`, `xlsx`).
+6. Files are written under:
+   - `generated/<world_model_id>/<generation_job_id>/...`
+7. Asset metadata is stored in SQLite (`assets` table), including MIME type, checksum, and `previewable` status.
+8. Job summaries/logs are persisted in `generation_jobs`.
+
+Generation jobs can be listed, canceled, and deleted via `/api/generation/jobs*`.
+
+## UI and API (General Guide)
+
+### Admin UI
+
+The UI is a React app with authenticated routes and session-cookie auth.
+
+Main sections:
+
+- **Dashboard**: system/provider status, counts, recent events, latest job
+- **World Models**: list/create/update world models
+- **Generation**: run jobs and track status
+- **File Browser**: inspect asset trees, preview safe text formats, upload/delete assets
+- **Event Log**: inspect captured telemetry
+- **Deployments**: create/start/stop/delete protocol deployments
+- **Settings**: configure and test provider settings
+
+### API
+
+Base URL: `http://localhost:8080`
+
+Key behavior:
+
+- Most `/api/*` endpoints require an authenticated admin session cookie.
+- Login endpoint: `POST /api/auth/login` with `{ "password": "..." }`.
+- Internal event ingest endpoint: `POST /internal/events` secured by `X-Honeygen-Internal-Event-Token`.
+
+Primary endpoint groups:
+
+- Auth/session: `/api/auth/login`, `/api/auth/logout`, `/api/auth/session`
+- Health/status: `/healthz`, `/api/health`, `/api/status`
+- Provider/settings: `/api/provider/test`, `/api/settings/provider`
+- World models: `/api/world-models*`, `/api/world-models/generate`
+- Generation/jobs: `/api/generation/run`, `/api/generation/jobs*`
+- Assets: `/api/assets*`, `/api/assets/tree`, `/api/assets/upload`
+- Events: `/api/events*`
+- Deployments: `/api/deployments*`, `/api/deployments/:id/start`, `/api/deployments/:id/stop`
+
+## Dependencies
+
+### Runtime / infrastructure
+
+- Docker + Docker Compose v2
+- SQLite (`modernc.org/sqlite`) for metadata persistence
+- `wkhtmltopdf` in API runtime image for PDF rendering
+- Samba `smbd` in API runtime image for SMB deployments
+
+### Backend (Go)
+
+- Go 1.24+
+- Key modules: `github.com/google/uuid`, `goftp.io/server/v2`, `github.com/willscott/go-nfs`, `github.com/xuri/excelize/v2`, `modernc.org/sqlite`
+
+### Frontend
+
+- Node.js 20+ (Dockerfile uses `node:20-bookworm-slim`)
+- React 18, React Router, TypeScript, Vite, `marked`, `dompurify`
+
+### Optional operator/client tools (for protocol testing)
+
+- SMB: `smbclient` (WSL/Linux; for native support on Windows, port 445 is needed)
+- FTP: `curl`
+- NFS: Linux/WSL `mount -t nfs` support
+
+## Deployment Instructions (HTTP, FTP, NFS, SMB)
+
+Honeygen deployments expose files from a completed generation job.
+
+### Common deployment workflow
+
+1. Generate files (job status must be `completed`).
+2. Create a deployment (`protocol`, `port`, `root_path`) on `9000-9009`.
+3. Start the deployment.
+4. Connect with an appropriate client.
+5. Observe telemetry in the Event Log.
+
+You can do this from the **Deployments** page or via API.
+
+### API example: authenticate first
+
+```bash
+BASE="http://localhost:8080"
+PASS="<your ADMIN_PASSWORD>"
+
+# Create an authenticated session cookie.
+curl -s -c cookies.txt -H "Content-Type: application/json" \
+  -d "{\"password\":\"$PASS\"}" \
+  "$BASE/api/auth/login"
+```
+
+### API example: create and start a deployment
+
+```bash
+JOB_ID="<completed_generation_job_id>"
+WORLD_ID="northbridge-financial"
+
+# Create an FTP deployment on port 9002.
+curl -s -b cookies.txt -H "Content-Type: application/json" \
+  -d "{\"generation_job_id\":\"$JOB_ID\",\"world_model_id\":\"$WORLD_ID\",\"protocol\":\"ftp\",\"port\":9002,\"root_path\":\"/\"}" \
+  "$BASE/api/deployments"
+
+# Start it (replace with returned deployment id).
+DEPLOYMENT_ID="<deployment_id>"
+curl -s -b cookies.txt -X POST "$BASE/api/deployments/$DEPLOYMENT_ID/start"
+```
+
+---
+
+### HTTP deployment
+
+- Protocol: `http`
+- Typical connect target: `http://localhost:<port>/`
+
+Example:
+
+```bash
+curl http://localhost:9000/
+```
+
+### FTP deployment
+
+- Protocol: `ftp`
+- Authentication: anonymous read-only (`ftpAnonymousAuth`)
+- Passive mode expected in Docker/Windows environments
+- `FTP_PASSIVE_PORTS` defaults to `9011-9020`
+
+Example:
+
+```bash
+curl --user anonymous:anonymous ftp://localhost:9002/
+```
+
+### NFS deployment
+
+- Protocol: `nfs`
+- Deployment response includes `mount_path` (default `/mount`)
+- On Windows, use WSL/Linux tools for custom-port NFS mounts
+
+Example (WSL):
+
+```bash
+sudo mount -t nfs -o nfsvers=3,noacl,tcp,port=9003,mountport=9003,nolock,noresvport 127.0.0.1:/mount /mnt/honeygen-nfs
+```
+
+### SMB deployment
+
+- Protocol: `smb`
+- Share name: `honeygen` (read-only guest)
+- Backed by Samba `smbd` started as a managed subprocess
+- Native Windows SMB client on localhost is limited because it expects port `445`, while Honeygen uses custom deployment ports
+
+Example (WSL/Linux):
+
+```bash
+smbclient //127.0.0.1/honeygen -p 9001 -N -c "ls"
+```
+
+## Event Telemetry Across Protocols
+
+Captured event types:
+
+- HTTP (`decoy-web` and HTTP deployments): `http_request`
+- FTP: `ftp_list`, `ftp_download`
+- NFS: `nfs_mount`, `nfs_list`, `nfs_read`
+- SMB: `smb_connect`, `smb_disconnect`, `smb_opendir`, `smb_open`
+
+Non-HTTP events normalize paths into canonical generated-file paths and include protocol metadata (`deployment_id`, `protocol`, `operation`) in `metadata`.
+
+## Persistence and Data Safety
+
+Compose volumes:
+
+- `sqlite-data`
+- `generated-assets`
+
+Quick persistence check:
+
+```bash
+docker compose restart
+```
+
+After restart, jobs/assets/events/deployments should still exist.
+
+## Known Constraints
+
+- Provider mode is external/OpenAI-compatible; generation needs valid provider settings.
+- API/admin endpoints are session-protected; remember to authenticate for direct API calls.
+- PDF rendering quality depends on `wkhtmltopdf`.
+- Binary previews are intentionally limited (PDF/DOCX/XLSX are download-first).
+- FTP active mode and localhost SMB on Windows have platform/network limitations; prefer passive FTP and WSL/Linux SMB tooling for local testing.
+
+## Additional Documentation
 
 - `docs/architecture.md`
 - `docs/api.md`

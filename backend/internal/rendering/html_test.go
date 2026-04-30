@@ -5,10 +5,28 @@ import (
 	"testing"
 )
 
-func TestHTMLRendererLeavesStandaloneDocumentUnchanged(t *testing.T) {
+func TestHTMLRendererLeavesStandaloneDocumentWithDoctypeUnchanged(t *testing.T) {
 	t.Parallel()
 
 	body := "<!doctype html><html><head><meta charset=\"utf-8\"><title>Standalone</title></head><body><h1>Already wrapped</h1></body></html>"
+
+	output, err := (HTMLRenderer{}).Render(context.Background(), Document{
+		Title: "Ignored",
+		Body:  body,
+	})
+	if err != nil {
+		t.Fatalf("Render() error = %v", err)
+	}
+
+	if got := string(output.Bytes); got != body {
+		t.Fatalf("Render() bytes = %q, want %q", got, body)
+	}
+}
+
+func TestHTMLRendererLeavesStandaloneDocumentWithoutDoctypeUnchanged(t *testing.T) {
+	t.Parallel()
+
+	body := "<html><head><meta charset=\"utf-8\"><title>Standalone</title></head><body><h1>Already wrapped</h1></body></html>"
 
 	output, err := (HTMLRenderer{}).Render(context.Background(), Document{
 		Title: "Ignored",
